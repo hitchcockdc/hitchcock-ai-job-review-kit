@@ -1,0 +1,28 @@
+[
+  {
+    "source": "fixture",
+    "external_id": "job-001",
+    "title": "Software Engineer, Automation",
+    "company": "Example Technology",
+    "url": "https://example.com/jobs/001",
+    "description": "Build Python services, REST API integrations, and SQL workflows on AWS using Docker.",
+    "location": "Remote - United States",
+    "remote": true,
+    "salary_min": 110000,
+    "salary_max": 145000,
+    "posted_at": "2026-08-28T08:00:00Z"
+  },
+  {
+    "source": "fixture",
+    "external_id": "job-002",
+    "title": "Field Sales Representative",
+    "company": "Example Sales",
+    "url": "https://example.com/jobs/002",
+    "description": "Commission only field sales role requiring local travel.",
+    "location": "Miami, Florida",
+    "remote": false,
+    "salary_max": 70000,
+    "posted_at": "2026-08-28T09:00:00Z"
+  }
+]
+

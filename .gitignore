@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.venv/
+*.db
+dist/
+build/
+*.egg-info/
+
+# Private candidate data and local state
+*_Resume.pdf
+config/candidate_profile.json
+config/*.private.json
+config/*.private.pdf
+config/*.private.docx
+config/*.private.txt
+config/tailoring-plans/
+.env
+.env.*
+!.env.example

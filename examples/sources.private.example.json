@@ -1,0 +1,10 @@
+[
+  {
+    "type": "usajobs",
+    "company": "U.S. Federal Government",
+    "board_token": "search",
+    "api_key": "REQUEST_FROM_USAJOBS_AND_KEEP_PRIVATE",
+    "user_agent": "your-email@example.com",
+    "query": "Keyword=Technology&WhoMayApply=public&Fields=full&ResultsPerPage=100&DatePosted=14"
+  }
+]

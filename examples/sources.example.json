@@ -1,0 +1,18 @@
+[
+  {
+    "type": "greenhouse",
+    "company": "Example Greenhouse Company",
+    "board_token": "company-board-token"
+  },
+  {
+    "type": "lever",
+    "company": "Example Lever Company",
+    "site": "company-site-name",
+    "region": "global"
+  },
+  {
+    "type": "ashby",
+    "company": "Example Ashby Company",
+    "job_board_name": "CompanyJobBoardName"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "Your Name",
+  "target_titles": ["software engineer", "automation engineer"],
+  "skills": ["Python", "SQL", "REST API", "AWS", "Docker"],
+  "industries": ["software", "technology"],
+  "locations": ["Denver", "Colorado"],
+  "remote_ok": true,
+  "minimum_salary": 90000,
+  "excluded_terms": ["commission only", "unpaid"]
+}

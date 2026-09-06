@@ -1,0 +1,15 @@
+{
+  "minimum_salary": null,
+  "remote_ok": true,
+  "locations": ["Denver", "Colorado"],
+  "employment_types": ["full time"],
+  "max_travel_percentage": null,
+  "eligible_countries": ["US"],
+  "work_authorized_countries": ["US"],
+  "consider_sponsorship_roles": false,
+  "title_priorities": [
+    "software engineer",
+    "automation engineer",
+    "platform engineer"
+  ]
+}
