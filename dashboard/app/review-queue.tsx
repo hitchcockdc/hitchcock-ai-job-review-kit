@@ -90,7 +90,10 @@ export function ReviewQueue({
 }: ReviewQueueProps) {
   return (
     <>
-      <aside className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <aside
+        aria-label="Review filters"
+        className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
         <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-[.14em] text-slate-500">
           Review queue
         </p>

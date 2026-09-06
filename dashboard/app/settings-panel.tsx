@@ -286,6 +286,7 @@ export function SettingsPanel({
               </p>
             </div>
             <Switch
+              aria-label="Include remote roles"
               checked={draft.remote_ok}
               onCheckedChange={(checked) => update('remote_ok', checked)}
             />
@@ -301,6 +302,7 @@ export function SettingsPanel({
               </p>
             </div>
             <Switch
+              aria-label="Consider roles requiring sponsorship"
               checked={draft.consider_sponsorship_roles}
               onCheckedChange={(checked) =>
                 update('consider_sponsorship_roles', checked)

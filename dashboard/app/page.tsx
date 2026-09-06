@@ -522,9 +522,10 @@ export default function Home() {
           <dialog
             open
             aria-modal="true"
+            aria-labelledby="skill-confirmation-title"
             className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
-            <h2 className="text-lg font-semibold">
+            <h2 id="skill-confirmation-title" className="text-lg font-semibold">
               Add {pendingSkill} to your profile?
             </h2>
             <p className="mt-2 text-sm text-slate-600">

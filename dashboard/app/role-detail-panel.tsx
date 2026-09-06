@@ -50,7 +50,10 @@ export function RoleDetailPanel({
   onMissingSkillClick,
 }: RoleDetailPanelProps) {
   return (
-    <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-48px)] lg:overflow-y-auto">
+    <aside
+      aria-label="Selected role details"
+      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-48px)] lg:overflow-y-auto"
+    >
       {selected ? (
         <>
           <div className="flex flex-wrap gap-2">
