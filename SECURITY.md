@@ -32,8 +32,8 @@ notice.
 ## Dependency checks
 
 The dashboard security workflow installs the lockfile, audits production dependencies,
-runs interaction tests, and builds the application. Run the same gate locally before a
-release:
+lints the complete dashboard, runs interaction tests, and builds the application. Run the
+same gate locally before a release:
 
 ```bash
 cd dashboard

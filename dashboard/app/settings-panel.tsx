@@ -69,12 +69,10 @@ export function SettingsPanel({
   onSave: (profile: Profile, message: string) => Promise<void>;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<Profile | null>(null);
+  const [draftOverride, setDraftOverride] = useState<Profile | null>(null);
   const [resumeReview, setResumeReview] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  useEffect(() => {
-    setDraft(config?.profile ?? null);
-  }, [config]);
+  const draft = draftOverride ?? config?.profile ?? null;
   if (!config || !draft)
     return (
       <div className="mx-auto max-w-5xl p-10 text-sm text-slate-500">
@@ -82,7 +80,11 @@ export function SettingsPanel({
       </div>
     );
   const update = (key: keyof Profile, value: unknown) =>
-    setDraft({ ...draft, [key]: value });
+    setDraftOverride({ ...draft, [key]: value });
+  const save = async (profile: Profile, confirmation: string) => {
+    setDraftOverride(profile);
+    await onSave(profile, confirmation);
+  };
   const valid = (() => {
     try {
       JSON.parse(profileJson);
@@ -197,7 +199,7 @@ export function SettingsPanel({
               <Button
                 disabled={!resumeReview || !valid || busy}
                 onClick={() =>
-                  void onSave(
+                  void save(
                     JSON.parse(profileJson) as Profile,
                     'Resume-derived profile changes committed locally.',
                   )
@@ -237,7 +239,7 @@ export function SettingsPanel({
           <Button
             disabled={busy}
             onClick={() =>
-              void onSave(draft, 'Matching preferences saved locally.')
+              void save(draft, 'Matching preferences saved locally.')
             }
           >
             <Save /> Save changes
@@ -315,7 +317,12 @@ export function SettingsPanel({
           </span>
         </summary>
         <div className="mt-4">
-          <AliasEditor profile={draft} busy={busy} onSave={onSave} />
+          <AliasEditor
+            key={JSON.stringify(draft.skill_aliases ?? {})}
+            profile={draft}
+            busy={busy}
+            onSave={save}
+          />
         </div>
       </details>
       <details
@@ -337,7 +344,7 @@ export function SettingsPanel({
               variant="outline"
               disabled={!valid || busy}
               onClick={() =>
-                void onSave(
+                void save(
                   JSON.parse(profileJson) as Profile,
                   'Advanced profile JSON saved locally.',
                 )
@@ -447,10 +454,9 @@ function AliasEditor({
   busy: boolean;
   onSave: (profile: Profile, message: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState('');
-  useEffect(() => {
-    setValue(JSON.stringify(profile.skill_aliases ?? {}, null, 2));
-  }, [profile.skill_aliases]);
+  const [value, setValue] = useState(() =>
+    JSON.stringify(profile.skill_aliases ?? {}, null, 2),
+  );
   const aliases = (() => {
     try {
       const parsed = JSON.parse(value);
@@ -511,10 +517,11 @@ function LearningAudit() {
   const [learning, setLearning] = useState<Learning | null>(null);
   const load = useCallback(async () => {
     const response = await fetch(`${API}/api/learning`);
-    if (response.ok) setLearning(await response.json());
+    if (response.ok) setLearning((await response.json()) as Learning);
   }, []);
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
   const ignore = async (term: string, ignored: boolean) => {
     await fetch(`${API}/api/learning/ignore`, {

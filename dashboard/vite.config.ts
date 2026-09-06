@@ -5,6 +5,13 @@ import { defineConfig } from 'vite';
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
+const apiTarget = process.env.GET_A_JOB_API_TARGET ?? 'http://127.0.0.1:8765';
+
+if (!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(apiTarget)) {
+  throw new Error(
+    'GET_A_JOB_API_TARGET must be a loopback HTTP URL with a port.',
+  );
+}
 
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
@@ -31,7 +38,7 @@ export default defineConfig(async () => {
       proxy: {
         // Keep every private-dashboard API request on the preview origin, then
         // forward it only to the loopback Python service.
-        '/api': { target: 'http://127.0.0.1:8765', changeOrigin: true },
+        '/api': { target: apiTarget, changeOrigin: true },
       },
       ...(isCodexSeatbeltSandbox
         ? { watch: { useFsEvents: false, usePolling: true } }

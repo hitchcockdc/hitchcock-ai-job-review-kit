@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   verify-dashboard:
-    name: Audit, test, and build
+    name: Audit, lint, test, and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -41,6 +41,8 @@ jobs:
         run: npm ci
       - name: Audit production dependencies
         run: npm run audit:production
+      - name: Lint dashboard
+        run: npm run lint
       - name: Run dashboard tests
         run: npm test
       - name: Build dashboard

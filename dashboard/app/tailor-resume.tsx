@@ -16,13 +16,6 @@ export function TailorResume({ job }: { job: Job }) {
   const [selectedEvidence, setSelectedEvidence] = useState<string[]>([]);
   const resultRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setDraft(null);
-    setMessage('');
-    setDownloadUrl(null);
-    setStage(1);
-    setSelectedEvidence([]);
-  }, [job.key]);
-  useEffect(() => {
     if (draft)
       resultRef.current?.scrollIntoView({
         behavior: 'smooth',
@@ -42,25 +35,29 @@ export function TailorResume({ job }: { job: Job }) {
           selected_experience_bullets: selectedEvidence,
         }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as {
+        draft?: TailoredDraft;
+        download_url?: string;
+        error?: string;
+      };
       if (!response.ok)
         throw new Error(
           payload.error || 'Could not create the tailored draft.',
         );
-      setDraft(payload.draft as TailoredDraft);
-      setSelectedEvidence(
-        (payload.draft as TailoredDraft).selected_experience_bullets ?? [],
-      );
+      if (!payload.draft)
+        throw new Error('The local API returned no tailored draft.');
+      const nextDraft = payload.draft;
+      setDraft(nextDraft);
+      setSelectedEvidence(nextDraft.selected_experience_bullets ?? []);
       setDownloadUrl(
         payload.download_url ? `${API}${payload.download_url}` : null,
       );
       if (action === 'draft') setStage(2);
       if (action === 'save') setStage(3);
-      const applied =
-        (payload.draft as TailoredDraft).experience_bullets_applied ?? [];
+      const applied = nextDraft.experience_bullets_applied ?? [];
       setMessage(
         action === 'generate'
-          ? `Tailored DOCX created privately. Changed: summary${(payload.draft as TailoredDraft).reordered_core_expertise.length ? ', Core Expertise' : ''}${applied.length ? `, and ${applied.length} selected experience bullet${applied.length === 1 ? '' : 's'}` : ''}. Your original is unchanged.`
+          ? `Tailored DOCX created privately. Changed: summary${nextDraft.reordered_core_expertise.length ? ', Core Expertise' : ''}${applied.length ? `, and ${applied.length} selected experience bullet${applied.length === 1 ? '' : 's'}` : ''}. Your original is unchanged.`
           : action === 'save'
             ? 'Approved tailoring plan saved locally. Your original resume was not replaced.'
             : 'Draft ready below. Review the evidence, then save the plan or generate a DOCX.',

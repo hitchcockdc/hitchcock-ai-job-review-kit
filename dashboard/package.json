@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "test": "vitest run",
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "verify:release": "npm run audit:production && npm test && npm run build",
+    "verify:release": "npm run audit:production && npm run lint && npm test && npm run build",
     "lint": "oxlint",
     "format": "oxfmt"
   },

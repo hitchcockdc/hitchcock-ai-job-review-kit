@@ -163,7 +163,7 @@ export function RoleDetailPanel({
               <p className="mt-1">{selected.match.evidence[0]}</p>
             </section>
           )}
-          <TailorResume job={selected.job} />
+          <TailorResume key={selected.job.key} job={selected.job} />
           <label
             htmlFor="decision-note"
             className="mt-5 block text-xs font-semibold uppercase tracking-[.12em] text-slate-500"

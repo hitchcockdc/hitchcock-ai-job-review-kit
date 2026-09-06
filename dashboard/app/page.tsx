@@ -144,7 +144,10 @@ export default function Home() {
           2,
         ),
       );
-      setDecisions((await decisionsResponse.json()).decisions);
+      const decisionPayload = (await decisionsResponse.json()) as {
+        decisions: Decision[];
+      };
+      setDecisions(decisionPayload.decisions);
     } catch (cause) {
       setMessage(
         cause instanceof Error ? cause.message : 'Could not load settings.',
@@ -152,7 +155,8 @@ export default function Home() {
     }
   }, []);
   useEffect(() => {
-    void refresh();
+    const timer = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(timer);
   }, [refresh]);
   useEffect(() => {
     const timer = window.setInterval(() => void refresh(), 60000);
@@ -165,70 +169,84 @@ export default function Home() {
     [],
   );
   useEffect(() => {
-    if (view === 'settings') void loadSettings();
+    if (view !== 'settings') return;
+    const timer = window.setTimeout(() => void loadSettings(), 0);
+    return () => window.clearTimeout(timer);
   }, [view, loadSettings]);
 
-  async function review(nextStatus: Exclude<Status, 'new'>) {
-    if (!selected) return;
-    setBusy(true);
-    setError('');
-    try {
-      const response = await fetch(
-        `${API}/api/jobs/${encodeURIComponent(selected.job.key)}/review`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: nextStatus, note }),
-        },
-      );
-      const payload = await response.json();
-      if (!response.ok)
-        throw new Error(
-          payload.error || 'Could not record the review decision.',
+  const review = useCallback(
+    async (nextStatus: Exclude<Status, 'new'>) => {
+      if (!selected) return;
+      setBusy(true);
+      setError('');
+      try {
+        const response = await fetch(
+          `${API}/api/jobs/${encodeURIComponent(selected.job.key)}/review`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: nextStatus, note }),
+          },
         );
-      setNote('');
-      const next = nextQueueItemAfterReview(
-        items,
-        selected.job.key,
-        coverageMinimum,
-        locationVerification,
-        authorizationVerification,
-      );
-      const remaining = items.filter(
-        (item) => item.job.key !== selected.job.key,
-      );
-      setItems(remaining);
-      setSelected(next);
-      setStats((current) =>
-        status === nextStatus
-          ? current
-          : {
-              ...current,
-              counts: {
-                ...current.counts,
-                [status]: Math.max(0, (current.counts[status] ?? 1) - 1),
-                [nextStatus]: (current.counts[nextStatus] ?? 0) + 1,
+        const payload = (await response.json()) as { error?: string };
+        if (!response.ok)
+          throw new Error(
+            payload.error || 'Could not record the review decision.',
+          );
+        setNote('');
+        const next = nextQueueItemAfterReview(
+          items,
+          selected.job.key,
+          coverageMinimum,
+          locationVerification,
+          authorizationVerification,
+        );
+        const remaining = items.filter(
+          (item) => item.job.key !== selected.job.key,
+        );
+        setItems(remaining);
+        setSelected(next);
+        setStats((current) =>
+          status === nextStatus
+            ? current
+            : {
+                ...current,
+                counts: {
+                  ...current.counts,
+                  [status]: Math.max(0, (current.counts[status] ?? 1) - 1),
+                  [nextStatus]: (current.counts[nextStatus] ?? 0) + 1,
+                },
               },
-            },
-      );
-      setReviewMessage(
-        `${labels[nextStatus]} recorded. ${next ? `Now reviewing ${next.job.title}.` : 'No more roles in this queue.'}`,
-      );
-      if (queuedRefresh.current) window.clearTimeout(queuedRefresh.current);
-      queuedRefresh.current = window.setTimeout(() => {
-        queuedRefresh.current = null;
-        void refresh();
-      }, 1500);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : 'Could not record the review decision.',
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+        );
+        setReviewMessage(
+          `${labels[nextStatus]} recorded. ${next ? `Now reviewing ${next.job.title}.` : 'No more roles in this queue.'}`,
+        );
+        if (queuedRefresh.current) window.clearTimeout(queuedRefresh.current);
+        queuedRefresh.current = window.setTimeout(() => {
+          queuedRefresh.current = null;
+          void refresh();
+        }, 1500);
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'Could not record the review decision.',
+        );
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      authorizationVerification,
+      coverageMinimum,
+      items,
+      locationVerification,
+      note,
+      refresh,
+      selected,
+      status,
+    ],
+  );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (
@@ -247,7 +265,7 @@ export default function Home() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, busy]);
+  }, [selected, busy, review]);
   async function saveProfile(profile: Profile, confirmation: string) {
     setBusy(true);
     setMessage('');
@@ -257,13 +275,19 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as {
+        error?: string;
+        profile?: Profile;
+      };
       if (!response.ok)
         throw new Error(payload.error || 'Could not save configuration.');
+      if (!payload.profile)
+        throw new Error('The local API returned no updated profile.');
+      const updatedProfile = payload.profile;
       setConfig((current) =>
-        current ? { ...current, profile: payload.profile } : current,
+        current ? { ...current, profile: updatedProfile } : current,
       );
-      setProfileJson(JSON.stringify(payload.profile, null, 2));
+      setProfileJson(JSON.stringify(updatedProfile, null, 2));
       setMessage(confirmation);
       await refresh();
     } catch (cause) {
@@ -302,15 +326,21 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as {
+        error?: string;
+        profile?: Profile;
+      };
       if (!response.ok)
         throw new Error(
           payload.error || 'Could not add the skill to your profile.',
         );
+      if (!payload.profile)
+        throw new Error('The local API returned no updated profile.');
+      const updatedProfile = payload.profile;
       setConfig((existing) =>
-        existing ? { ...existing, profile: payload.profile } : existing,
+        existing ? { ...existing, profile: updatedProfile } : existing,
       );
-      setProfileJson(JSON.stringify(payload.profile, null, 2));
+      setProfileJson(JSON.stringify(updatedProfile, null, 2));
       await refresh();
       setLastAddedSkill(skill);
       setReviewMessage(
@@ -346,13 +376,19 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as {
+        error?: string;
+        profile?: Profile;
+      };
       if (!response.ok)
         throw new Error(payload.error || 'Could not undo the skill addition.');
+      if (!payload.profile)
+        throw new Error('The local API returned no updated profile.');
+      const updatedProfile = payload.profile;
       setConfig((existing) =>
-        existing ? { ...existing, profile: payload.profile } : existing,
+        existing ? { ...existing, profile: updatedProfile } : existing,
       );
-      setProfileJson(JSON.stringify(payload.profile, null, 2));
+      setProfileJson(JSON.stringify(updatedProfile, null, 2));
       await refresh();
       setReviewMessage(`${lastAddedSkill} removed from your local profile.`);
       setLastAddedSkill(null);
@@ -391,7 +427,7 @@ export default function Home() {
           content_base64: btoa(text),
         }),
       });
-      const payload = await response.json();
+      const payload = (await response.json()) as { error?: string };
       if (!response.ok)
         throw new Error(payload.error || 'Could not save resume.');
       setMessage(
@@ -483,8 +519,8 @@ export default function Home() {
       )}
       {pendingSkill && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-5">
-          <section
-            role="dialog"
+          <dialog
+            open
             aria-modal="true"
             className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
           >
@@ -511,7 +547,7 @@ export default function Home() {
                 Add skill
               </Button>
             </div>
-          </section>
+          </dialog>
         </div>
       )}
       {view === 'settings' ? (

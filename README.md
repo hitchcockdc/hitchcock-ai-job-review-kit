@@ -10,6 +10,8 @@ evidence-only resume drafts.
 > **Project status:** Alpha. The application is intended for local use and requires a
 > person to approve every profile change, resume change, and application decision.
 
+![Synthetic Job Review Kit dashboard](docs/images/review-queue.jpg)
+
 ## Why this project exists
 
 Job discovery tools often hide their ranking logic or ask candidates to upload sensitive
@@ -216,12 +218,13 @@ cd dashboard
 npm run verify:release
 ```
 
-The gate audits production dependencies, runs dashboard interaction tests, and builds the
-production bundle. GitHub Actions runs equivalent checks for relevant pull requests and
-pushes to `main`.
+The gate audits production dependencies, runs the complete dashboard lint and interaction
+test suites, and builds the production bundle. GitHub Actions runs equivalent checks for
+relevant pull requests and pushes to `main`.
 
 See [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), and
-[Security](SECURITY.md) for more detail.
+[Security](SECURITY.md) for more detail. The [product tour](docs/PRODUCT_TOUR.md) uses only
+synthetic data, and the [roadmap](ROADMAP.md) describes the current direction and non-goals.
 
 ## Limitations
 
@@ -232,8 +235,6 @@ See [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), and
 - DOCX tailoring supports recognized layouts and stops rather than risking broad formatting
   damage when a document structure is unknown.
 - Hosted deployment and automated application submission are outside the supported scope.
-- The repository-wide dashboard lint command has known findings; the documented release gate
-  is the passing dependency audit, interaction-test, and production-build workflow.
 
 ## Support
 

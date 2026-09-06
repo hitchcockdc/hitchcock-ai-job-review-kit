@@ -31,18 +31,18 @@ Run the Python suite from the repository root:
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
-Run dashboard formatting and the production test, build, and security gate from
+Run dashboard formatting, linting, and the production test, build, and security gate from
 `dashboard/`:
 
 ```bash
 npm run format
+npm run lint
 npm run verify:release
 ```
 
-The repository-wide `npm run lint` command currently reports known findings in both the
-application and bundled UI components. Do not represent it as a passing release gate.
-New or changed code should avoid adding findings, and cleanup should use focused fixes
-rather than broad suppression.
+Keep the repository-wide lint command passing. Fix findings at their source; narrow,
+documented suppression is appropriate only for a reusable primitive whose caller supplies
+the required accessibility relationship.
 
 ## Pull requests
 
