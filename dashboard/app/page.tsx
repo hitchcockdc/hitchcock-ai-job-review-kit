@@ -20,6 +20,7 @@ import {
 } from './review-queue-state';
 import { SkillGroup } from './role-skills';
 import { ReviewQueue } from './review-queue';
+import { ReviewShortcutBar } from './review-shortcuts';
 import { RoleDetailPanel } from './role-detail-panel';
 import type {
   AuthorizationVerificationFilter,
@@ -32,6 +33,11 @@ import type {
   Stats,
   Status,
 } from './dashboard-types';
+import {
+  SCORING_COMPONENTS,
+  scoringDirectionTotal,
+  scoringWeights,
+} from './scoring';
 
 // Relative requests let the local preview proxy serve the same private API path.
 const API = '';
@@ -48,21 +54,6 @@ const dateTime = (value: string | null) =>
         timeStyle: 'short',
       }).format(new Date(value))
     : 'Not yet fetched';
-function scoreParts(breakdown: Record<string, number>) {
-  return [
-    ['Required skills', breakdown.required_skills, 30],
-    ['Role skills', breakdown.role_skills, 25],
-    ['Target title', breakdown.title_target, 20],
-    ['Title priority', breakdown.priority, 10],
-    ['Work location', breakdown.work_location, 5],
-    ['Other preferences', breakdown.preferences, 5],
-    ['Industry', breakdown.industry, 5],
-    ...(breakdown.decision_learning
-      ? [['Learning', breakdown.decision_learning, 15]]
-      : []),
-  ] as [string, number | undefined, number][];
-}
-
 export default function Home() {
   const [view, setView] = useState<'review' | 'settings'>('review');
   const [status, setStatus] = useState<Status>('new');
@@ -83,6 +74,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [pendingSkill, setPendingSkill] = useState<string | null>(null);
   const [lastAddedSkill, setLastAddedSkill] = useState<string | null>(null);
+  const [shortcutHelp, setShortcutHelp] = useState(false);
   const [coverageMinimum, setCoverageMinimum] = useState(0);
   const [locationVerification, setLocationVerification] =
     useState<LocationVerificationFilter>('all');
@@ -249,10 +241,24 @@ export default function Home() {
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key === 'Escape' && shortcutHelp) {
+        event.preventDefault();
+        setShortcutHelp(false);
+        return;
+      }
+      if (event.key === 'Escape' && pendingSkill) {
+        event.preventDefault();
+        setPendingSkill(null);
+        return;
+      }
       if (
         !selected ||
         busy ||
-        ['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement)?.tagName)
+        pendingSkill ||
+        shortcutHelp ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '') ||
+        target?.isContentEditable
       )
         return;
       const action = ({ s: 'saved', r: 'rejected', a: 'applied' } as const)[
@@ -261,11 +267,15 @@ export default function Home() {
       if (action) {
         event.preventDefault();
         void review(action);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setSelected(null);
+        setReviewMessage('Role selection cleared.');
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, busy, review]);
+  }, [selected, busy, pendingSkill, review, shortcutHelp]);
   async function saveProfile(profile: Profile, confirmation: string) {
     setBusy(true);
     setMessage('');
@@ -460,6 +470,67 @@ export default function Home() {
       ),
     [items, coverageMinimum, locationVerification, authorizationVerification],
   );
+  useEffect(() => {
+    const onQueueKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        view !== 'review' ||
+        pendingSkill ||
+        shortcutHelp ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '') ||
+        target?.isContentEditable
+      )
+        return;
+      const key = event.key.toLowerCase();
+      if (event.key === '?') {
+        event.preventDefault();
+        setShortcutHelp(true);
+        return;
+      }
+      const direction =
+        key === 'j' || event.key === 'ArrowDown'
+          ? 1
+          : key === 'k' || event.key === 'ArrowUp'
+            ? -1
+            : 0;
+      if (!direction || !visibleItems.length) return;
+      event.preventDefault();
+      const currentIndex = selected
+        ? visibleItems.findIndex((item) => item.job.key === selected.job.key)
+        : -1;
+      const nextIndex =
+        currentIndex < 0
+          ? direction > 0
+            ? 0
+            : visibleItems.length - 1
+          : Math.min(
+              visibleItems.length - 1,
+              Math.max(0, currentIndex + direction),
+            );
+      const next = visibleItems[nextIndex];
+      setSelected(next);
+      setReviewMessage(
+        `Selected ${next.job.title}, ${nextIndex + 1} of ${visibleItems.length}.`,
+      );
+    };
+    window.addEventListener('keydown', onQueueKey);
+    return () => window.removeEventListener('keydown', onQueueKey);
+  }, [pendingSkill, selected, shortcutHelp, view, visibleItems]);
+  useEffect(() => {
+    if (!selected) return;
+    const selectedIndex = visibleItems.findIndex(
+      (item) => item.job.key === selected.job.key,
+    );
+    if (selectedIndex < 0) return;
+    const timer = window.setTimeout(
+      () =>
+        document
+          .querySelector<HTMLElement>(`[data-job-index="${selectedIndex}"]`)
+          ?.focus(),
+      0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [selected, visibleItems]);
   const locationVerificationCounts = useMemo(
     () =>
       countLocationVerification(
@@ -499,23 +570,16 @@ export default function Home() {
         }
         onRefresh={() => void refresh()}
       />
-      {reviewMessage && (
-        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-5 py-3 text-sm text-emerald-900 lg:px-10">
-          <span>{reviewMessage}</span>
-          {lastAddedSkill && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void undoSkillAddition()}
-            >
-              Undo
-            </Button>
-          )}
-          <span className="text-emerald-700">
-            Shortcuts: S save · R reject · A applied
-          </span>
-        </div>
+      {view === 'review' && (
+        <ReviewShortcutBar
+          message={reviewMessage}
+          visibleCount={visibleItems.length}
+          lastAddedSkill={lastAddedSkill}
+          busy={busy}
+          helpOpen={shortcutHelp}
+          onHelpOpenChange={setShortcutHelp}
+          onUndo={() => void undoSkillAddition()}
+        />
       )}
       {pendingSkill && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-5">
@@ -564,7 +628,7 @@ export default function Home() {
           onUpload={uploadResume}
         />
       ) : (
-        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-5 px-5 py-6 lg:grid-cols-[240px_minmax(0,1fr)_420px] lg:px-10">
+        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-5 px-4 py-4 sm:px-5 sm:py-6 lg:grid-cols-[240px_minmax(0,1fr)_420px] lg:px-10">
           <ReviewQueue
             status={status}
             stats={stats}
@@ -576,19 +640,38 @@ export default function Home() {
             authorizationVerification={authorizationVerification}
             authorizationVerificationCounts={authorizationVerificationCounts}
             visibleItems={visibleItems}
-            selectedKey={selected?.job.key}
+            selected={selected}
             error={error}
-            onStatusChange={setStatus}
-            onCoverageMinimumChange={setCoverageMinimum}
+            onStatusChange={(nextStatus) => {
+              setStatus(nextStatus);
+              setSelected(null);
+              setReviewMessage(`${labels[nextStatus]} queue selected.`);
+            }}
+            onCoverageMinimumChange={(minimum) => {
+              setCoverageMinimum(minimum);
+              setSelected(null);
+              setReviewMessage(
+                minimum
+                  ? `Showing roles with at least ${minimum}% skill coverage.`
+                  : 'Showing all skill coverage levels.',
+              );
+            }}
             onLocationVerificationChange={(filter) => {
               setLocationVerification(filter);
               setSelected(null);
+              setReviewMessage('Work-location filter updated.');
             }}
             onAuthorizationVerificationChange={(filter) => {
               setAuthorizationVerification(filter);
               setSelected(null);
+              setReviewMessage('Work-authorization filter updated.');
             }}
-            onSelect={setSelected}
+            onSelect={(item) => {
+              setSelected(item);
+              setReviewMessage(
+                `Selected ${item.job.title}. Use Review selected on small screens or continue with keyboard shortcuts.`,
+              );
+            }}
           />
           <RoleDetailPanel
             selected={selected}
@@ -613,14 +696,51 @@ export default function Home() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              {scoreParts(selected.match.score_breakdown).map(
-                ([label, value, maximum]) => (
-                  <Badge key={label} variant="outline">
-                    {label}: {value ?? 0}/{maximum}
-                  </Badge>
-                ),
-              )}
+              {SCORING_COMPONENTS.map(({ key, label }) => (
+                <Badge key={key} variant="outline">
+                  {label}: {selected.match.score_breakdown[key] ?? 0}/
+                  {scoringWeights(selected.match.scoring_weights)[key]}
+                </Badge>
+              ))}
+              {selected.match.score_breakdown.decision_learning ? (
+                <Badge variant="outline">
+                  Learning:{' '}
+                  {selected.match.score_breakdown.decision_learning > 0
+                    ? '+'
+                    : ''}
+                  {selected.match.score_breakdown.decision_learning}
+                </Badge>
+              ) : null}
             </div>
+          </div>
+          <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+            <p className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900">
+              Candidate → role:{' '}
+              {['required_skills', 'role_skills'].reduce(
+                (sum, key) => sum + (selected.match.score_breakdown[key] ?? 0),
+                0,
+              )}
+              /
+              {scoringDirectionTotal(
+                scoringWeights(selected.match.scoring_weights),
+                'candidate-to-role',
+              )}
+            </p>
+            <p className="rounded-lg bg-indigo-50 px-3 py-2 text-indigo-900">
+              Role → you:{' '}
+              {SCORING_COMPONENTS.filter(
+                ({ direction }) => direction === 'role-to-candidate',
+              ).reduce(
+                (sum, { key }) =>
+                  sum + (selected.match.score_breakdown[key] ?? 0),
+                0,
+              )}
+              /
+              {scoringDirectionTotal(
+                scoringWeights(selected.match.scoring_weights),
+                'role-to-candidate',
+              )}
+            </p>
           </div>
         </section>
       )}

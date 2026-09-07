@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ApplicationTracker } from './application-tracker';
+import { ScoreWeightSettings } from './score-weight-settings';
 import type {
   Config,
   Decision,
@@ -311,6 +312,12 @@ export function SettingsPanel({
           </div>
         </div>
       </section>
+      <ScoreWeightSettings
+        key={JSON.stringify(draft.scoring_weights ?? {})}
+        profile={draft}
+        busy={busy}
+        onSave={save}
+      />
       <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <summary className="cursor-pointer font-semibold">
           Custom skill aliases{' '}

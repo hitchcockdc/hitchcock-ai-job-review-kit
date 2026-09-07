@@ -146,6 +146,13 @@ describe('dashboard accessibility', () => {
     ).toBeTruthy();
 
     await expectNoAccessibilityViolations();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(window, { key: '?' });
+    expect(
+      screen.getByRole('dialog', { name: 'Keyboard review shortcuts' }),
+    ).toBeTruthy();
+    await expectNoAccessibilityViolations();
   });
 
   test('configuration controls have accessible names', async () => {

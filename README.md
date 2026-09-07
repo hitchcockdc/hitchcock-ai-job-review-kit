@@ -31,7 +31,7 @@ or invent experience that is not present in the candidate profile.
 
 ## Features
 
-- Public Greenhouse, Lever, Ashby, YC Work at a Startup, and optional USAJOBS connectors.
+- Public Greenhouse, Lever, Ashby, SmartRecruiters, YC Work at a Startup, and optional USAJOBS connectors.
 - Country- and region-aware remote matching, including separate work-authorization review.
 - Explainable two-way scoring with required, matched, and missing role skills.
 - A compact local dashboard for new, saved, rejected, and applied roles.
@@ -165,6 +165,13 @@ The score considers:
 - employment type, compensation, travel, and industry preferences; and
 - lightweight signals from the user's saved, rejected, and applied decisions.
 
+The Configuration page exposes the seven base scoring weights as a 100-point allocation.
+It separates candidate-to-role skill coverage from role-to-candidate preference fit and
+previews every component change against fictional roles before an approved allocation is
+saved locally. A separate private preview compares tentative weights against the current
+new-role queue without persisting them. Decision-learning adjustments remain a separate,
+labeled signal.
+
 Missing job data is reported as unknown instead of being silently treated as a match.
 Dashboard filters can separate verified locations, location confirmation, authorized roles,
 sponsorship roles, and authorization confirmation.
@@ -222,9 +229,10 @@ The gate audits production dependencies, runs the complete dashboard lint and in
 test suites, and builds the production bundle. GitHub Actions runs equivalent checks for
 relevant pull requests and pushes to `main`.
 
-See [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), and
-[Security](SECURITY.md) for more detail. The [product tour](docs/PRODUCT_TOUR.md) uses only
-synthetic data, and the [roadmap](ROADMAP.md) describes the current direction and non-goals.
+See [Architecture](docs/ARCHITECTURE.md), the [connector contract](docs/CONNECTORS.md),
+[Contributing](CONTRIBUTING.md), and [Security](SECURITY.md) for more detail. The
+[product tour](docs/PRODUCT_TOUR.md) uses only synthetic data, and the
+[roadmap](ROADMAP.md) describes the current direction and non-goals.
 
 ## Limitations
 

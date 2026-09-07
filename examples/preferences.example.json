@@ -7,6 +7,15 @@
   "eligible_countries": ["US"],
   "work_authorized_countries": ["US"],
   "consider_sponsorship_roles": false,
+  "scoring_weights": {
+    "required_skills": 30,
+    "role_skills": 25,
+    "title_target": 20,
+    "priority": 10,
+    "work_location": 5,
+    "preferences": 5,
+    "industry": 5
+  },
   "title_priorities": [
     "software engineer",
     "automation engineer",

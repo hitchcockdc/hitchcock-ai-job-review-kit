@@ -21,7 +21,11 @@ from get_a_job.resume import (
     generate_tailored_docx, tailored_docx_filename,
 )
 from get_a_job.storage import Store
-from get_a_job.dashboard_services import ApplicationService, TailoringService
+from get_a_job.dashboard_services import (
+    ApplicationService,
+    ScoringPreviewService,
+    TailoringService,
+)
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -29,6 +33,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     config_dir: Path
     refresh_minutes: int
     applications: ApplicationService
+    scoring_preview: ScoringPreviewService
     tailoring: TailoringService
     allowed_origins = {
         "http://localhost:5173",
@@ -181,6 +186,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path == "/api/scoring-preview":
+            try:
+                payload = self._read_json()
+                requested_limit = payload.get("limit", 10)
+                if not isinstance(requested_limit, int) or isinstance(requested_limit, bool):
+                    raise ValueError("limit must be a whole number")
+                limit = min(max(requested_limit, 1), 20)
+                preview = self.scoring_preview.preview(payload.get("weights"), limit)
+            except (ValueError, json.JSONDecodeError) as error:
+                self._json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._json(preview)
+            return
         if parsed.path == "/api/config/profile":
             try:
                 payload = self._read_json()
@@ -320,6 +338,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     DashboardHandler.store = Store(Path(args.db))
     DashboardHandler.applications = ApplicationService(DashboardHandler.store)
+    DashboardHandler.scoring_preview = ScoringPreviewService(DashboardHandler.store)
     DashboardHandler.config_dir = Path(args.db).parent / "config"
     DashboardHandler.tailoring = TailoringService(DashboardHandler.store, DashboardHandler.config_dir)
     DashboardHandler.refresh_minutes = max(args.refresh_minutes, 0)

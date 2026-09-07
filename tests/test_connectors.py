@@ -1,10 +1,12 @@
 import json
 import unittest
+from pathlib import Path
 
 from get_a_job.connectors import (
     fetch_ashby,
     fetch_greenhouse,
     fetch_lever,
+    fetch_smartrecruiters,
     fetch_usajobs,
     fetch_yc,
     fetch_sources_resilient,
@@ -117,6 +119,69 @@ class ConnectorTests(unittest.TestCase):
         self.assertTrue(jobs[0].remote)
         self.assertEqual(jobs[0].country, "IE")
         self.assertEqual(jobs[0].countries, ["IE"])
+
+    def test_smartrecruiters_fetches_details_and_normalizes_public_posting(self):
+        fixture_path = (
+            Path(__file__).parents[1]
+            / "examples"
+            / "fixtures"
+            / "smartrecruiters-public-postings.json"
+        )
+        payloads = json.loads(fixture_path.read_text(encoding="utf-8"))
+        urls = []
+
+        def fetch(url):
+            urls.append(url)
+            return payloads["detail"] if url.endswith("/101") else payloads["list"]
+
+        jobs = fetch_smartrecruiters(
+            {"type": "smartrecruiters", "company_identifier": "Acme"}, fetch
+        )
+
+        self.assertIn("destination=PUBLIC", urls[0])
+        self.assertEqual(len(urls), 2)
+        self.assertEqual(jobs[0].key, "smartrecruiters:Acme:101")
+        self.assertEqual(jobs[0].countries, ["ES"])
+        self.assertTrue(jobs[0].remote)
+        self.assertEqual(jobs[0].employment_type, "Full-time")
+        self.assertEqual((jobs[0].salary_min, jobs[0].salary_max), (150000, 190000))
+        self.assertEqual(
+            jobs[0].description,
+            "Job Description: Lead AI platform delivery. Qualifications: Python & Kubernetes required.",
+        )
+
+    def test_smartrecruiters_rejects_invalid_list_and_detail_shapes(self):
+        source = {"type": "smartrecruiters", "company_identifier": "Acme"}
+        with self.assertRaisesRegex(ValueError, "must be an object"):
+            fetch_smartrecruiters(source, lambda _: [])
+
+        calls = iter([{"content": [{"id": "1", "name": "Architect"}]}, []])
+        with self.assertRaisesRegex(ValueError, "details must be an object"):
+            fetch_smartrecruiters(source, lambda _: next(calls))
+
+    def test_resilient_fetch_retains_all_multi_request_payloads(self):
+        responses = iter(
+            [
+                {"content": [{"id": "1", "name": "Architect"}]},
+                {
+                    "id": "1",
+                    "name": "Architect",
+                    "active": True,
+                    "postingUrl": "https://jobs.smartrecruiters.com/Acme/1",
+                    "location": {"country": "us", "remote": True},
+                    "jobAd": {"sections": {"jobDescription": {"text": "Python"}}},
+                },
+            ]
+        )
+        result = fetch_sources_resilient(
+            [{"type": "smartrecruiters", "company_identifier": "Acme"}],
+            lambda _: next(responses),
+        )[0]
+
+        self.assertIsNone(result.error)
+        self.assertEqual(len(result.jobs), 1)
+        self.assertIsInstance(result.payload, list)
+        self.assertEqual(len(result.payload), 2)
 
     def test_resilient_fetch_keeps_success_when_another_source_fails(self):
         payload = {"jobs": []}

@@ -3,10 +3,11 @@ import json
 import tempfile
 import threading
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 
 from get_a_job.dashboard_server import DashboardHandler
-from get_a_job.dashboard_services import ApplicationService, TailoringService
+from get_a_job.dashboard_services import ApplicationService, ScoringPreviewService, TailoringService
 from get_a_job.models import CandidateProfile, Job
 from get_a_job.storage import Store
 from http.server import ThreadingHTTPServer
@@ -25,6 +26,7 @@ class DashboardHttpTests(unittest.TestCase):
         DashboardHandler.config_dir = root / "config"
         DashboardHandler.refresh_minutes = 0
         DashboardHandler.applications = ApplicationService(self.store)
+        DashboardHandler.scoring_preview = ScoringPreviewService(self.store)
         DashboardHandler.tailoring = TailoringService(self.store, DashboardHandler.config_dir)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), DashboardHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -68,3 +70,55 @@ class DashboardHttpTests(unittest.TestCase):
         })
         self.assertEqual(status, 400)
         self.assertIn("date", payload["error"])
+
+    def test_profile_endpoint_validates_scoring_weights(self):
+        profile = asdict(self.store.load_profile())
+        profile["scoring_weights"]["role_skills"] += 1
+
+        status, payload = self.request(
+            "POST", "/api/config/profile", {"profile": profile}
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "scoring weights must total 100")
+
+        profile["scoring_weights"]["required_skills"] -= 1
+        status, payload = self.request(
+            "POST", "/api/config/profile", {"profile": profile}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(sum(payload["profile"]["scoring_weights"].values()), 100)
+
+    def test_scoring_preview_validates_without_persisting_weights(self):
+        preview_job = Job(
+            "test",
+            "2",
+            "Cloud Solution Architect",
+            "BetaCo",
+            "https://example.com/2",
+            "Design Python and Kubernetes cloud platforms for enterprise customers.",
+            location="Remote - US",
+            remote=True,
+        )
+        self.store.upsert_jobs([preview_job])
+        weights = asdict(self.store.load_profile())["scoring_weights"]
+        weights = {**weights, "required_skills": 35, "role_skills": 20}
+
+        status, payload = self.request(
+            "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(payload["persisted"])
+        self.assertEqual(payload["queue_size"], 1)
+        self.assertEqual(payload["rows"][0]["job_key"], preview_job.key)
+        self.assertNotEqual(
+            payload["proposed_weights"],
+            asdict(self.store.load_profile())["scoring_weights"],
+        )
+
+        status, payload = self.request(
+            "POST", "/api/scoring-preview", {"weights": {"required_skills": 100}}
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("seven documented components", payload["error"])

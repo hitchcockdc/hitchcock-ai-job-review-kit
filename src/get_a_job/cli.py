@@ -121,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             "eligible_countries",
             "work_authorized_countries",
             "consider_sponsorship_roles",
+            "scoring_weights",
         }
         unknown = set(preferences) - allowed
         if unknown:

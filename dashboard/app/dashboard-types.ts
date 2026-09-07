@@ -1,4 +1,13 @@
 export type Status = 'new' | 'saved' | 'rejected' | 'applied';
+export type ScoringWeightKey =
+  | 'required_skills'
+  | 'role_skills'
+  | 'title_target'
+  | 'priority'
+  | 'work_location'
+  | 'preferences'
+  | 'industry';
+export type ScoringWeights = Record<ScoringWeightKey, number>;
 export type LocationVerificationFilter = 'all' | 'verified' | 'unknown';
 export type AuthorizationVerificationFilter =
   | 'all'
@@ -44,6 +53,7 @@ export type Match = {
   role_skill_count?: number;
   role_skill_contexts?: SkillContext[];
   score_breakdown: Record<string, number>;
+  scoring_weights?: ScoringWeights;
 };
 
 export type Item = { job: Job; match: Match; status: Status };
@@ -75,6 +85,7 @@ export type Profile = Record<string, unknown> & {
   eligible_countries: string[];
   work_authorized_countries: string[];
   consider_sponsorship_roles: boolean;
+  scoring_weights?: ScoringWeights;
   excluded_terms: string[];
 };
 
@@ -110,6 +121,24 @@ export type Learning = {
 };
 
 export type QueueMeta = { ranking_ms: number; cached: boolean };
+
+export type ScoringPreviewRow = {
+  job_key: string;
+  title: string;
+  company: string;
+  current_score: number | null;
+  proposed_score: number | null;
+  current_rank: number | null;
+  proposed_rank: number | null;
+};
+
+export type ScoringPreview = {
+  rows: ScoringPreviewRow[];
+  current_weights: ScoringWeights;
+  proposed_weights: ScoringWeights;
+  queue_size: number;
+  persisted: false;
+};
 
 export type TailoredDraft = {
   target: { title: string; company: string };

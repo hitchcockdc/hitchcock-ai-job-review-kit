@@ -383,27 +383,45 @@ def score_job(
     # 2) Does the role meet the candidate's stated title, industry, and work preferences?
     # Role-skill coverage uses the role as its denominator, so adding an unrelated
     # skill to the profile can never lower an otherwise good match.
+    weights = profile.scoring_weights
     if role_skills:
-        role_skill_score = round(25 * _weighted_role_coverage(matched_role_skills, role_skill_contexts))
+        role_skill_score = round(
+            weights["role_skills"]
+            * _weighted_role_coverage(matched_role_skills, role_skill_contexts)
+        )
         required_skill_score = (
-            round(30 * len(matched_required_role_skills) / len(required_role_skills))
-            if required_role_skills else min(30, 10 * len(matched_role_skills))
+            round(
+                weights["required_skills"]
+                * len(matched_required_role_skills)
+                / len(required_role_skills)
+            )
+            if required_role_skills
+            else min(
+                weights["required_skills"],
+                round(weights["required_skills"] * 10 * len(matched_role_skills) / 30),
+            )
         )
     else:
         # Some postings omit a qualifications section. Preserve useful signal from
         # direct profile-skill mentions without penalizing a broader profile.
-        role_skill_score = min(25, 8 * len(matched_skills))
-        required_skill_score = min(30, 10 * len(matched_skills))
+        role_skill_score = min(
+            weights["role_skills"],
+            round(weights["role_skills"] * 8 * len(matched_skills) / 25),
+        )
+        required_skill_score = min(
+            weights["required_skills"],
+            round(weights["required_skills"] * 10 * len(matched_skills) / 30),
+        )
 
-    title_score = min(20, 20 * len(title_matches))
-    industry_score = min(5, 5 * len(industry_matches))
-    location_score = 5 if location_ok else 0
-    preference_score = 5 if (
+    title_score = weights["title_target"] if title_matches else 0
+    industry_score = weights["industry"] if industry_matches else 0
+    location_score = weights["work_location"] if location_ok else 0
+    preference_score = weights["preferences"] if (
         salary_ok and employment_ok and travel_ok and country_ok
         and country_verification != "unknown"
         and authorization_verification in {"verified", "not_configured"}
     ) else 0
-    priority_score = 10 if priority_matches else 0
+    priority_score = weights["priority"] if priority_matches else 0
     score = min(
         100,
         required_skill_score + role_skill_score + title_score + industry_score
@@ -428,6 +446,7 @@ def score_job(
             score_breakdown=score_breakdown, required_role_skills=required_role_skills,
             country_verification=country_verification,
             authorization_verification=authorization_verification,
+            scoring_weights=dict(weights),
             buried_role_skills=buried_role_skills,
             matched_role_skill_count=len(matched_role_skills),
             role_skill_count=len(role_skills),
@@ -523,4 +542,5 @@ def score_job(
         role_skill_count=len(role_skills),
         role_skill_contexts=role_skill_contexts,
         authorization_verification=authorization_verification,
+        scoring_weights=dict(weights),
     )

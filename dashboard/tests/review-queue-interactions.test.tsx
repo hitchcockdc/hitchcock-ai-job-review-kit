@@ -123,6 +123,7 @@ describe('review queue interactions', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Needs confirmation 1' }),
     );
+    expect(screen.getAllByText('Work-location filter updated.').length).toBe(2);
     await waitFor(() => {
       expect(
         screen.queryByRole('link', { name: /Open employer application/ }),
@@ -152,5 +153,61 @@ describe('review queue interactions', () => {
     expect(
       screen.queryByRole('button', { name: /Confirmation Architect/ }),
     ).toBeNull();
+  });
+
+  test('supports keyboard navigation, review shortcuts, and mobile selection context', async () => {
+    render(<Home />);
+    await screen.findByRole('button', { name: /Verified Architect/ });
+
+    const mobileFilters = screen.getByRole('button', {
+      name: 'More filters Show',
+    });
+    expect(mobileFilters.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(mobileFilters);
+    expect(mobileFilters.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.keyDown(window, { key: 'j' });
+    const verified = screen.getByRole('button', {
+      name: /Verified Architect/,
+    });
+    expect(verified.getAttribute('aria-current')).toBe('true');
+    expect(screen.getByRole('link', { name: 'Review selected' })).toBeTruthy();
+    expect(
+      screen.getAllByText('Selected Verified Architect, 1 of 2.').length,
+    ).toBe(2);
+
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(
+      screen
+        .getByRole('button', { name: /Confirmation Architect/ })
+        .getAttribute('aria-current'),
+    ).toBe('true');
+    fireEvent.keyDown(window, { key: 'k' });
+    expect(verified.getAttribute('aria-current')).toBe('true');
+
+    fireEvent.keyDown(window, { key: '?' });
+    expect(
+      screen.getByRole('dialog', { name: 'Keyboard review shortcuts' }),
+    ).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('dialog', { name: 'Keyboard review shortcuts' }),
+      ).toBeNull();
+    });
+
+    fireEvent.keyDown(window, { key: 's' });
+    expect(
+      (
+        await screen.findAllByText(
+          /Saved recorded\. Now reviewing Confirmation Architect\./,
+        )
+      ).length,
+    ).toBe(2);
+    await waitFor(() => {
+      expect(document.activeElement?.textContent).toContain(
+        'Confirmation Architect',
+      );
+    });
   });
 });

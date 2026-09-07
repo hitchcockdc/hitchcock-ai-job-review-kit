@@ -31,7 +31,12 @@ class SourceFetchResult:
 
 def source_id(source: dict[str, Any]) -> str:
     source_type = str(source.get("type", "")).lower()
-    identifier = source.get("board_token") or source.get("site") or source.get("job_board_name")
+    identifier = (
+        source.get("board_token")
+        or source.get("site")
+        or source.get("job_board_name")
+        or source.get("company_identifier")
+    )
     if not source_type or not identifier:
         raise ValueError("source needs a type and board identifier")
     return f"{source_type}:{identifier}"
@@ -229,6 +234,150 @@ def fetch_ashby(source: dict[str, Any], fetch: JsonFetcher = get_json) -> list[J
     return jobs
 
 
+def _smartrecruiters_description(item: dict[str, Any]) -> str:
+    job_ad = item.get("jobAd") or {}
+    if not isinstance(job_ad, dict):
+        raise ValueError("SmartRecruiters posting contained an invalid job ad")
+    sections = job_ad.get("sections") or {}
+    if not isinstance(sections, dict):
+        raise ValueError("SmartRecruiters posting contained invalid job-ad sections")
+    labels = {
+        "companyDescription": "Company description",
+        "jobDescription": "Job description",
+        "qualifications": "Qualifications",
+        "additionalInformation": "Additional information",
+    }
+    content = []
+    for key in labels:
+        section = sections.get(key) or {}
+        if not isinstance(section, dict):
+            continue
+        text = _plain(section.get("text"))
+        if text:
+            content.append(f"{_plain(section.get('title')) or labels[key]}: {text}")
+    return " ".join(content)
+
+
+def _smartrecruiters_salary(item: dict[str, Any]) -> tuple[int | None, int | None]:
+    compensation = item.get("compensation") or {}
+    if not isinstance(compensation, dict):
+        return None, None
+    period = str(compensation.get("period", "")).upper()
+    if str(compensation.get("currency", "")).upper() != "USD" or period not in {
+        "ANNUAL",
+        "ANNUALLY",
+        "YEAR",
+        "YEARLY",
+    }:
+        return None, None
+
+    def amount(name: str) -> int | None:
+        try:
+            value = compensation.get(name)
+            if isinstance(value, bool):
+                return None
+            return int(float(value)) if value is not None else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    return amount("min"), amount("max")
+
+
+def fetch_smartrecruiters(
+    source: dict[str, Any], fetch: JsonFetcher = get_json
+) -> list[Job]:
+    """Normalize one company's unauthenticated SmartRecruiters public postings."""
+    identifier = quote(str(source["company_identifier"]), safe="")
+    requested_max = source.get("max_postings", 100)
+    if not isinstance(requested_max, int) or isinstance(requested_max, bool):
+        raise ValueError("SmartRecruiters max_postings must be a whole number")
+    max_postings = min(max(requested_max, 1), 100)
+    base = f"https://api.smartrecruiters.com/v1/companies/{identifier}/postings"
+    payload = fetch(
+        f"{base}?limit={max_postings}&offset=0&destination=PUBLIC"
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("SmartRecruiters response must be an object")
+    postings = payload.get("content", [])
+    if not isinstance(postings, list):
+        raise ValueError("SmartRecruiters response contained invalid postings")
+
+    jobs = []
+    for summary in postings[:max_postings]:
+        if not isinstance(summary, dict):
+            continue
+        posting_id = str(summary.get("id") or summary.get("uuid") or "").strip()
+        title = _plain(summary.get("name"))
+        if not posting_id or not title:
+            continue
+        detail = fetch(f"{base}/{quote(posting_id, safe='')}")
+        if not isinstance(detail, dict):
+            raise ValueError("SmartRecruiters posting details must be an object")
+        if detail.get("active") is False:
+            continue
+        title = _plain(detail.get("name")) or title
+        company_data = detail.get("company") or summary.get("company") or {}
+        company = (
+            _plain(company_data.get("name"))
+            if isinstance(company_data, dict)
+            else ""
+        ) or str(source.get("company") or source["company_identifier"])
+        location_data = detail.get("location") or summary.get("location") or {}
+        if not isinstance(location_data, dict):
+            location_data = {}
+        location_parts = [
+            _plain(location_data.get("city")),
+            _plain(location_data.get("region")),
+            _plain(location_data.get("country")),
+        ]
+        location = ", ".join(part for part in location_parts if part)
+        remote = bool(location_data.get("remote")) or str(
+            detail.get("locationType", "")
+        ).upper() == "REMOTE"
+        if remote:
+            location = f"Remote - {location}" if location else "Remote"
+        structured_country = _plain(location_data.get("country"))
+        country, countries, regions = _location_metadata(
+            structured_country or location,
+            structured=bool(structured_country),
+        )
+        employment = detail.get("typeOfEmployment") or summary.get(
+            "typeOfEmployment"
+        ) or {}
+        salary_min, salary_max = _smartrecruiters_salary(detail)
+        url = str(
+            detail.get("postingUrl")
+            or detail.get("applyUrl")
+            or summary.get("ref")
+            or f"{base}/{quote(posting_id, safe='')}"
+        )
+        description = _smartrecruiters_description(detail) or title
+        jobs.append(
+            Job(
+                source=f"smartrecruiters:{source['company_identifier']}",
+                external_id=posting_id,
+                title=title,
+                company=company,
+                url=url,
+                description=description,
+                location=location,
+                remote=remote,
+                country=country,
+                countries=countries,
+                regions=regions,
+                employment_type=(
+                    _plain(employment.get("label"))
+                    if isinstance(employment, dict)
+                    else _plain(employment)
+                ),
+                salary_min=salary_min,
+                salary_max=salary_max,
+                posted_at=detail.get("releasedDate") or summary.get("releasedDate"),
+            )
+        )
+    return jobs
+
+
 def _salary_range(value: Any) -> tuple[int | None, int | None]:
     amounts = [int(amount.replace(",", "")) * 1000 for amount in re.findall(r"\$(\d[\d,]*)K", str(value))]
     if not amounts:
@@ -353,6 +502,7 @@ CONNECTORS = {
     "greenhouse": fetch_greenhouse,
     "lever": fetch_lever,
     "ashby": fetch_ashby,
+    "smartrecruiters": fetch_smartrecruiters,
     "yc": fetch_yc,
     "usajobs": fetch_usajobs,
 }
@@ -378,14 +528,17 @@ def fetch_sources_resilient(
     for source in sources:
         identifier = source_id(source)
         payload: FetchPayload | None = None
+        captured_payloads: list[FetchPayload] = []
 
         source_type = str(source.get("type", "")).lower()
         source_fetch = get_text if source_type == "yc" and fetch is get_json else fetch
 
         def capture(url: str) -> FetchPayload:
             nonlocal payload
-            payload = source_fetch(url)
-            return payload
+            captured = source_fetch(url)
+            captured_payloads.append(captured)
+            payload = captured_payloads[0] if len(captured_payloads) == 1 else captured_payloads
+            return captured
 
         try:
             connector = CONNECTORS[source_type]

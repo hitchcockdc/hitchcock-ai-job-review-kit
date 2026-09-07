@@ -51,8 +51,9 @@ export function RoleDetailPanel({
 }: RoleDetailPanelProps) {
   return (
     <aside
+      id="selected-role-details"
       aria-label="Selected role details"
-      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-48px)] lg:overflow-y-auto"
+      className="scroll-mt-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-6 lg:h-[calc(100vh-48px)] lg:overflow-y-auto"
     >
       {selected ? (
         <>
@@ -67,7 +68,19 @@ export function RoleDetailPanel({
               status={selected.match.authorization_verification}
             />
           </div>
-          <h2 className="mt-3 text-lg font-semibold">{selected.job.title}</h2>
+          <a
+            href="#review-queue-results"
+            className="mb-2 inline-flex text-xs font-semibold text-indigo-700 lg:hidden"
+          >
+            ← Back to role list
+          </a>
+          <h2
+            id="selected-role-title"
+            className="mt-3 text-lg font-semibold"
+            tabIndex={-1}
+          >
+            {selected.job.title}
+          </h2>
           <p className="text-sm text-slate-500">
             {selected.job.company} · {selected.job.location}
           </p>
@@ -180,11 +193,12 @@ export function RoleDetailPanel({
               placeholder="Why this role is or isn't worth pursuing…"
             />
           </label>
-          <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="sticky bottom-0 -mx-5 mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
             <Button
               variant="outline"
               disabled={busy}
               onClick={() => onReview('saved')}
+              aria-keyshortcuts="S"
             >
               <Bookmark /> Save
             </Button>
@@ -192,10 +206,15 @@ export function RoleDetailPanel({
               variant="destructive"
               disabled={busy}
               onClick={() => onReview('rejected')}
+              aria-keyshortcuts="R"
             >
               <ThumbsDown /> Reject
             </Button>
-            <Button disabled={busy} onClick={() => onReview('applied')}>
+            <Button
+              disabled={busy}
+              onClick={() => onReview('applied')}
+              aria-keyshortcuts="A"
+            >
               <Send /> Applied
             </Button>
           </div>

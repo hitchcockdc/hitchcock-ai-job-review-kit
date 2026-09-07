@@ -63,6 +63,10 @@ New connectors must use documented public employer endpoints, normalize into the
 `Job` model, isolate source failures, preserve source attribution, and include fixture-based
 tests. A connector must never apply on behalf of a user.
 
+Read the [connector contract and synthetic example](docs/CONNECTORS.md) before adding a
+source. The example demonstrates the required fields, location metadata, description
+normalization, failure behavior, and privacy boundary without using a real employer feed.
+
 ## Code style
 
 Prefer focused modules, explicit data transformations, deterministic matching behavior, and

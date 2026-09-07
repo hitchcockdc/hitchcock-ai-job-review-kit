@@ -7,6 +7,38 @@ from typing import Any
 from get_a_job.text import plain_text
 
 
+DEFAULT_SCORING_WEIGHTS = {
+    "required_skills": 30,
+    "role_skills": 25,
+    "title_target": 20,
+    "priority": 10,
+    "work_location": 5,
+    "preferences": 5,
+    "industry": 5,
+}
+
+
+def _scoring_weights(value: Any) -> dict[str, int]:
+    if value is None:
+        return dict(DEFAULT_SCORING_WEIGHTS)
+    if not isinstance(value, dict):
+        raise ValueError("scoring_weights must be an object")
+    unknown = set(value) - set(DEFAULT_SCORING_WEIGHTS)
+    missing = set(DEFAULT_SCORING_WEIGHTS) - set(value)
+    if unknown or missing:
+        raise ValueError("scoring_weights must contain the seven documented components")
+    weights = {
+        key: weight
+        for key, weight in value.items()
+        if isinstance(weight, int) and not isinstance(weight, bool) and 0 <= weight <= 100
+    }
+    if len(weights) != len(DEFAULT_SCORING_WEIGHTS):
+        raise ValueError("scoring weights must be whole numbers from 0 to 100")
+    if sum(weights.values()) != 100:
+        raise ValueError("scoring weights must total 100")
+    return weights
+
+
 def _strings(value: Any) -> list[str]:
     if value is None:
         return []
@@ -31,6 +63,9 @@ class CandidateProfile:
     eligible_countries: list[str] = field(default_factory=list)
     work_authorized_countries: list[str] = field(default_factory=list)
     consider_sponsorship_roles: bool = True
+    scoring_weights: dict[str, int] = field(
+        default_factory=lambda: dict(DEFAULT_SCORING_WEIGHTS)
+    )
     excluded_terms: list[str] = field(default_factory=list)
     skill_aliases: dict[str, list[str]] = field(default_factory=dict)
     experience_summary: dict[str, Any] = field(default_factory=dict)
@@ -62,6 +97,7 @@ class CandidateProfile:
             consider_sponsorship_roles=bool(
                 data.get("consider_sponsorship_roles", True)
             ),
+            scoring_weights=_scoring_weights(data.get("scoring_weights")),
             excluded_terms=_strings(data.get("excluded_terms")),
             skill_aliases={
                 str(skill): _strings(aliases)
@@ -148,3 +184,6 @@ class MatchResult:
     role_skill_count: int = 0
     role_skill_contexts: list[dict[str, str]] = field(default_factory=list)
     authorization_verification: str = "not_configured"
+    scoring_weights: dict[str, int] = field(
+        default_factory=lambda: dict(DEFAULT_SCORING_WEIGHTS)
+    )

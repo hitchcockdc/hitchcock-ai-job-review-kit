@@ -1,0 +1,52 @@
+{
+  "list": {
+    "totalFound": 2,
+    "content": [
+      {
+        "id": "101",
+        "name": "Principal AI Architect",
+        "releasedDate": "2026-09-05T12:00:00Z"
+      },
+      {
+        "uuid": "missing-title"
+      }
+    ]
+  },
+  "detail": {
+    "id": "101",
+    "name": "Principal AI Architect",
+    "active": true,
+    "company": {
+      "identifier": "acme",
+      "name": "Acme"
+    },
+    "postingUrl": "https://jobs.smartrecruiters.com/Acme/101",
+    "location": {
+      "city": "Madrid",
+      "country": "es",
+      "remote": true
+    },
+    "typeOfEmployment": {
+      "label": "Full-time"
+    },
+    "releasedDate": "2026-09-05T12:00:00Z",
+    "compensation": {
+      "min": 150000,
+      "max": 190000,
+      "currency": "USD",
+      "period": "YEARLY"
+    },
+    "jobAd": {
+      "sections": {
+        "jobDescription": {
+          "title": "Job Description",
+          "text": "<p>Lead AI platform delivery.</p>"
+        },
+        "qualifications": {
+          "title": "Qualifications",
+          "text": "Python &amp; Kubernetes required."
+        }
+      }
+    }
+  }
+}

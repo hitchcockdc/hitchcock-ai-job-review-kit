@@ -14,5 +14,11 @@
     "type": "ashby",
     "company": "Example Ashby Company",
     "job_board_name": "CompanyJobBoardName"
+  },
+  {
+    "type": "smartrecruiters",
+    "company": "Example SmartRecruiters Company",
+    "company_identifier": "CompanyIdentifier",
+    "max_postings": 100
   }
 ]

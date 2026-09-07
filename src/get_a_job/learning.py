@@ -92,4 +92,5 @@ def apply_learning(result: MatchResult, job: Job, signals: DecisionSignals, deta
         role_skill_count=result.role_skill_count,
         role_skill_contexts=result.role_skill_contexts,
         authorization_verification=result.authorization_verification,
+        scoring_weights=result.scoring_weights,
     )

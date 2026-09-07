@@ -56,6 +56,56 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual(partial.score_breakdown["required_skills"], 22)
         self.assertEqual(complete.score_breakdown["required_skills"], 30)
 
+    def test_custom_scoring_weights_change_only_documented_components(self):
+        profile = replace(
+            self.profile,
+            scoring_weights={
+                "required_skills": 40,
+                "role_skills": 30,
+                "title_target": 10,
+                "priority": 5,
+                "work_location": 5,
+                "preferences": 5,
+                "industry": 5,
+            },
+        )
+        job = Job(
+            "test", "weighted", "Software Engineer", "Example",
+            "https://example.com/weighted",
+            "Required qualifications: Python, SQL, and Docker experience.",
+            remote=True,
+        )
+
+        result = score_job(profile, job)
+
+        self.assertEqual(result.score, 90)
+        self.assertEqual(result.score_breakdown["required_skills"], 40)
+        self.assertEqual(result.score_breakdown["role_skills"], 30)
+        self.assertEqual(result.score_breakdown["title_target"], 10)
+        self.assertEqual(result.scoring_weights, profile.scoring_weights)
+
+    def test_profile_rejects_incomplete_or_unbalanced_scoring_weights(self):
+        with self.assertRaisesRegex(ValueError, "seven documented components"):
+            CandidateProfile.from_dict(
+                {"target_titles": [], "skills": [], "scoring_weights": {"role_skills": 100}}
+            )
+        with self.assertRaisesRegex(ValueError, "must total 100"):
+            CandidateProfile.from_dict(
+                {
+                    "target_titles": [],
+                    "skills": [],
+                    "scoring_weights": {
+                        "required_skills": 30,
+                        "role_skills": 30,
+                        "title_target": 20,
+                        "priority": 10,
+                        "work_location": 5,
+                        "preferences": 5,
+                        "industry": 5,
+                    },
+                }
+            )
+
     def test_boise_local_role_is_eligible_alongside_remote_roles(self):
         job = Job(
             "test", "boise", "Software Engineer", "Example", "https://example.com/boise",
