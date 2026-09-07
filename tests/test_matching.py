@@ -234,6 +234,49 @@ class MatchingTests(unittest.TestCase):
         self.assertNotIn("Identity & access management", result.missing_skills)
         self.assertNotIn("Identity & access management", result.required_role_skills)
 
+    def test_solution_architect_title_matches_solutions_architect_target(self):
+        profile = CandidateProfile(
+            name="Candidate",
+            target_titles=["solutions architect"],
+            skills=["Python"],
+            remote_ok=True,
+        )
+        job = Job(
+            "test", "singular-title", "Solution Architect", "Example",
+            "https://example.com/singular-title", "Python", remote=True,
+        )
+
+        result = score_job(profile, job)
+
+        self.assertEqual(result.score_breakdown["title_target"], 20)
+        self.assertIn("target title match: solutions architect", result.reasons)
+
+    def test_qualifications_section_skills_remain_required_until_next_section(self):
+        job = Job(
+            "test", "qualification-section", "Solution Architect", "Example",
+            "https://example.com/qualification-section",
+            (
+                "Qualifications: Background in data governance, data catalogs, "
+                "ontologies, and knowledge graphs. Proficiency in SQL. "
+                "Additional Information: Our internal platform also uses AWS."
+            ),
+            remote=True,
+        )
+
+        result = score_job(self.profile, job)
+
+        self.assertEqual(
+            result.required_role_skills,
+            [
+                "SQL",
+                "Data governance",
+                "Data catalogs",
+                "Knowledge graphs",
+                "Ontologies",
+            ],
+        )
+        self.assertNotIn("AWS", result.required_role_skills)
+
     def test_explicit_identity_and_oauth_language_is_an_iam_skill(self):
         job = Job(
             "test", "iam", "Platform Architect", "Example", "https://example.com/iam",

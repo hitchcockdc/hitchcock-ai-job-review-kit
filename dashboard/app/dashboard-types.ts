@@ -110,6 +110,7 @@ export type Stats = {
     positive_decision_terms: number;
     negative_decision_terms: number;
   };
+  candidate_cache?: CandidateCacheStats;
 };
 
 export type Learning = {
@@ -120,7 +121,20 @@ export type Learning = {
   ignored: string[];
 };
 
-export type QueueMeta = { ranking_ms: number; cached: boolean };
+export type CandidateCacheStats = {
+  hits: number;
+  misses: number;
+  hit_rate: number;
+  entries: number;
+  cached_jobs: number;
+  estimated_bytes: number;
+};
+
+export type QueueMeta = {
+  ranking_ms: number;
+  cached: boolean;
+  candidate_cache?: CandidateCacheStats;
+};
 
 export type ScoringPreviewRow = {
   job_key: string;

@@ -27,6 +27,8 @@ class DashboardHttpTests(unittest.TestCase):
         DashboardHandler.refresh_minutes = 0
         DashboardHandler.ranking_cache = {}
         DashboardHandler.candidate_cache = {}
+        DashboardHandler.candidate_cache_hits = 0
+        DashboardHandler.candidate_cache_misses = 0
         DashboardHandler.applications = ApplicationService(self.store)
         DashboardHandler.scoring_preview = ScoringPreviewService(self.store)
         DashboardHandler.tailoring = TailoringService(self.store, DashboardHandler.config_dir)
@@ -85,11 +87,15 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertEqual(payload["error"], "scoring weights must total 100")
 
         profile["scoring_weights"]["required_skills"] -= 1
+        DashboardHandler.ranking_cache = {("stale",): {}}
+        DashboardHandler.candidate_cache = {("stale",): ([], 0, 0)}
         status, payload = self.request(
             "POST", "/api/config/profile", {"profile": profile}
         )
         self.assertEqual(status, 200)
         self.assertEqual(sum(payload["profile"]["scoring_weights"].values()), 100)
+        self.assertEqual(DashboardHandler.ranking_cache, {})
+        self.assertEqual(DashboardHandler.candidate_cache, {})
 
     def test_scoring_preview_validates_without_persisting_weights(self):
         preview_job = Job(
@@ -145,8 +151,49 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertFalse(refreshed_payload["candidate_set_reused"])
         self.assertEqual(refreshed_payload["queue_size"], 2)
 
+        status, stats = self.request("GET", "/api/stats")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(stats["candidate_cache"]["hits"], 2)
+        self.assertEqual(stats["candidate_cache"]["misses"], 2)
+        self.assertEqual(stats["candidate_cache"]["entries"], 2)
+        self.assertEqual(stats["candidate_cache"]["cached_jobs"], 3)
+        self.assertGreater(stats["candidate_cache"]["estimated_bytes"], 0)
+
         status, payload = self.request(
             "POST", "/api/scoring-preview", {"weights": {"required_skills": 100}}
         )
         self.assertEqual(status, 400)
         self.assertIn("seven documented components", payload["error"])
+
+    def test_jobs_endpoint_filters_company_and_keeps_distinct_roles(self):
+        self.store.upsert_jobs([
+            Job(
+                "test", "company-1", "Platform Architect", "Example",
+                "https://example.com/company-1", "Python", remote=True,
+            ),
+            Job(
+                "test", "company-2", "Solution Architect", "Example",
+                "https://example.com/company-2", "Python", remote=True,
+            ),
+            Job(
+                "test", "other", "Enterprise Architect", "Other",
+                "https://example.com/other", "Python", remote=True,
+            ),
+        ])
+
+        status, payload = self.request(
+            "GET", "/api/jobs?status=new&limit=10&company=Example"
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(len(payload["jobs"]), 2)
+        self.assertEqual(
+            {entry["job"]["company"] for entry in payload["jobs"]},
+            {"Example"},
+        )
+
+        status, payload = self.request(
+            "GET", f"/api/jobs?company={'x' * 121}"
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["error"], "company filter is too long")

@@ -96,6 +96,14 @@ describe('dashboard accessibility', () => {
             counts: { new: 1, saved: 0, rejected: 0, applied: 0 },
             activity: { last_fetch_at: null },
             sources: [],
+            candidate_cache: {
+              hits: 3,
+              misses: 1,
+              hit_rate: 0.75,
+              entries: 1,
+              cached_jobs: 12,
+              estimated_bytes: 1_572_864,
+            },
           });
         }
         if (url === '/api/config') {
@@ -170,6 +178,7 @@ describe('dashboard accessibility', () => {
         name: 'Target job countries or regions',
       }),
     ).toBeTruthy();
+    expect(screen.getByText(/Preview cache 75% hits · ≈1.5 MB/)).toBeTruthy();
 
     await expectNoAccessibilityViolations();
   });

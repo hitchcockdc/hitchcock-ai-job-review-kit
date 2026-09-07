@@ -43,8 +43,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
     }
     ranking_cache: dict[tuple[object, ...], dict[str, object]] = {}
     ranking_cache_lock = threading.Lock()
-    candidate_cache: dict[tuple[object, ...], tuple[list[Job], int]] = {}
+    candidate_cache: dict[tuple[object, ...], tuple[list[Job], int, int]] = {}
     candidate_cache_lock = threading.Lock()
+    candidate_cache_hits = 0
+    candidate_cache_misses = 0
 
     def _cached_eligible_candidates(
         self, status: str, profile: CandidateProfile
@@ -56,9 +58,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         key = (status, profile_token, self.store.ranking_revision(status))
         with self.candidate_cache_lock:
             cached = self.candidate_cache.get(key)
-        if cached is not None:
-            jobs, queue_size = cached
-            return jobs, queue_size, True
+            if cached is not None:
+                type(self).candidate_cache_hits += 1
+                jobs, queue_size, _ = cached
+                return jobs, queue_size, True
+            type(self).candidate_cache_misses += 1
 
         all_jobs = self.store.list_jobs([status])
         eligible_jobs = [
@@ -75,8 +79,41 @@ class DashboardHandler(BaseHTTPRequestHandler):
         with self.candidate_cache_lock:
             if len(self.candidate_cache) >= 4:
                 self.candidate_cache.clear()
-            self.candidate_cache[key] = (eligible_jobs, len(all_jobs))
+            estimated_bytes = sum(
+                len(json.dumps(asdict(job), ensure_ascii=False).encode("utf-8"))
+                for job in eligible_jobs
+            )
+            self.candidate_cache[key] = (
+                eligible_jobs,
+                len(all_jobs),
+                estimated_bytes,
+            )
         return eligible_jobs, len(all_jobs), False
+
+    def _candidate_cache_diagnostics(self) -> dict[str, int | float]:
+        with self.candidate_cache_lock:
+            hits = self.candidate_cache_hits
+            misses = self.candidate_cache_misses
+            attempts = hits + misses
+            return {
+                "hits": hits,
+                "misses": misses,
+                "hit_rate": round(hits / attempts, 3) if attempts else 0.0,
+                "entries": len(self.candidate_cache),
+                "cached_jobs": sum(
+                    len(entry[0]) for entry in self.candidate_cache.values()
+                ),
+                "estimated_bytes": sum(
+                    entry[2] for entry in self.candidate_cache.values()
+                ),
+            }
+
+    def _clear_profile_caches(self) -> None:
+        """Release cache entries tied to the previous profile immediately."""
+        with self.ranking_cache_lock:
+            self.ranking_cache.clear()
+        with self.candidate_cache_lock:
+            self.candidate_cache.clear()
 
     def _cached_new_queue_snapshot(
         self, profile: CandidateProfile, minimum_limit: int
@@ -93,6 +130,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 and int(key[1]) >= minimum_limit
                 and key[2] == profile_token
                 and key[3] == revision
+                and key[4] == ""
             ]
             if not candidates:
                 return None
@@ -162,6 +200,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "sources": self.store.source_health(),
                     "refresh_minutes": self.refresh_minutes,
                     "learning": self.store.decision_signals().summary,
+                    "candidate_cache": self._candidate_cache_diagnostics(),
                 }
             )
             return
@@ -198,10 +237,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if status not in {"new", "saved", "rejected", "applied"}:
                 self._json({"error": "invalid status"}, HTTPStatus.BAD_REQUEST)
                 return
+            company = query.get("company", [""])[0].strip()
+            if len(company) > 120:
+                self._json({"error": "company filter is too long"}, HTTPStatus.BAD_REQUEST)
+                return
             limit = min(max(int(query.get("limit", ["25"])[0]), 1), 100)
             profile = self.store.load_profile()
             profile_token = json.dumps(asdict(profile), sort_keys=True, separators=(",", ":"))
-            cache_key = (status, limit, profile_token, self.store.ranking_revision(status))
+            cache_key = (
+                status,
+                limit,
+                profile_token,
+                self.store.ranking_revision(status),
+                company.casefold(),
+            )
             started = time.perf_counter()
             cached = False
             with self.ranking_cache_lock:
@@ -210,12 +259,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     candidate_jobs, _, candidate_cache_reused = (
                         self._cached_eligible_candidates(status, profile)
                     )
+                    if company:
+                        candidate_jobs = [
+                            job
+                            for job in candidate_jobs
+                            if job.company.casefold() == company.casefold()
+                        ]
                     ignored = set(profile.preferences_to_confirm.get("ignored_learning_terms", []))
                     ranked = shortlist(
                         profile,
                         candidate_jobs,
                         limit=limit,
-                        per_company=1,
+                        per_company=limit if company else 1,
                         decision_signals=self.store.decision_signals().filtered(ignored),
                         eligibility_prevalidated=True,
                     )
@@ -235,7 +290,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     self.ranking_cache[cache_key] = payload
                 else:
                     cached = True
-            payload = {**payload, "meta": {"ranking_ms": round((time.perf_counter() - started) * 1000), "cached": cached}}
+            payload = {
+                **payload,
+                "meta": {
+                    "ranking_ms": round((time.perf_counter() - started) * 1000),
+                    "cached": cached,
+                    "candidate_cache": self._candidate_cache_diagnostics(),
+                },
+            }
             self._json(payload)
             return
         if parsed.path == "/api/decisions":
@@ -289,6 +351,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 payload = self._read_json()
                 profile = CandidateProfile.from_dict(payload["profile"])
                 self.store.save_profile(profile)
+                self._clear_profile_caches()
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
                 self._json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
                 return
@@ -383,6 +446,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 preferences["ignored_learning_terms"] = sorted(ignored)
                 profile_data["preferences_to_confirm"] = preferences
                 self.store.save_profile(CandidateProfile.from_dict(profile_data))
+                self._clear_profile_caches()
             except (ValueError, json.JSONDecodeError) as error:
                 self._json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
                 return

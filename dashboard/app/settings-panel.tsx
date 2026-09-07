@@ -48,6 +48,10 @@ const dateTime = (value: string | null) =>
         timeStyle: 'short',
       }).format(new Date(value))
     : 'Not yet fetched';
+const cacheSize = (bytes: number) =>
+  bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.round(bytes / 1024)} KB`;
 
 export function SettingsPanel({
   config,
@@ -104,13 +108,24 @@ export function SettingsPanel({
           </p>
           <h1 className="text-2xl font-semibold">Tune the job search</h1>
         </div>
-        <Badge
-          variant={
-            healthy === stats.sources.length ? 'secondary' : 'destructive'
-          }
-        >
-          {healthy}/{stats.sources.length} sources healthy
-        </Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          {stats.candidate_cache && (
+            <Badge
+              variant="outline"
+              title={`${stats.candidate_cache.cached_jobs.toLocaleString()} eligible jobs across ${stats.candidate_cache.entries} cached revisions`}
+            >
+              Preview cache {Math.round(stats.candidate_cache.hit_rate * 100)}%
+              hits · ≈{cacheSize(stats.candidate_cache.estimated_bytes)}
+            </Badge>
+          )}
+          <Badge
+            variant={
+              healthy === stats.sources.length ? 'secondary' : 'destructive'
+            }
+          >
+            {healthy}/{stats.sources.length} sources healthy
+          </Badge>
+        </div>
       </div>
       {message && (
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">

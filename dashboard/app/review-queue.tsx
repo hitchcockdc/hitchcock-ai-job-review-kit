@@ -62,6 +62,8 @@ type ReviewQueueProps = {
   visibleItems: Item[];
   selected: Item | null;
   error: string;
+  companyFilter: string | null;
+  onClearCompanyFilter: () => void;
   onStatusChange: (status: Status) => void;
   onCoverageMinimumChange: (minimum: number) => void;
   onLocationVerificationChange: (filter: LocationVerificationFilter) => void;
@@ -84,6 +86,8 @@ export function ReviewQueue({
   visibleItems,
   selected,
   error,
+  companyFilter,
+  onClearCompanyFilter,
   onStatusChange,
   onCoverageMinimumChange,
   onLocationVerificationChange,
@@ -214,21 +218,38 @@ export function ReviewQueue({
       <section
         id="review-queue-results"
         tabIndex={-1}
-        aria-label={`${labels[status]} results`}
+        aria-label={
+          companyFilter ? `${companyFilter} roles` : `${labels[status]} results`
+        }
         className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       >
         <div className="flex justify-between border-b border-slate-100 px-4 py-3">
           <div>
-            <h1 className="font-semibold">{labels[status]}</h1>
+            <h1 className="font-semibold">
+              {companyFilter ? `${companyFilter} roles` : labels[status]}
+            </h1>
             <p className="text-xs text-slate-500">
-              Green is strong; red is weak. Select a role for full details.
+              {companyFilter
+                ? `Comparing distinct ${companyFilter} roles in this queue.`
+                : 'Green is strong; red is weak. Select a role for full details.'}
             </p>
           </div>
-          <Badge variant="secondary">
-            {queueLoading && !queueLoaded
-              ? 'Loading roles…'
-              : `${visibleItems.length} shown`}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {companyFilter && (
+              <button
+                type="button"
+                onClick={onClearCompanyFilter}
+                className="text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+              >
+                Show all companies
+              </button>
+            )}
+            <Badge variant="secondary">
+              {queueLoading && !queueLoaded
+                ? 'Loading roles…'
+                : `${visibleItems.length} shown`}
+            </Badge>
+          </div>
         </div>
         {selected && (
           <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50 px-4 py-2 lg:hidden">

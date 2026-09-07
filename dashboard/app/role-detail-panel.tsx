@@ -38,6 +38,7 @@ type RoleDetailPanelProps = {
   onNoteChange: (note: string) => void;
   onReview: (status: Exclude<Status, 'new'>) => void;
   onMissingSkillClick: (skill: string) => void;
+  onViewCompany: (company: string) => void;
 };
 
 export function RoleDetailPanel({
@@ -48,6 +49,7 @@ export function RoleDetailPanel({
   onNoteChange,
   onReview,
   onMissingSkillClick,
+  onViewCompany,
 }: RoleDetailPanelProps) {
   return (
     <aside
@@ -84,6 +86,14 @@ export function RoleDetailPanel({
           <p className="text-sm text-slate-500">
             {selected.job.company} · {selected.job.location}
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-3"
+            onClick={() => onViewCompany(selected.job.company)}
+          >
+            More from {selected.job.company}
+          </Button>
           <a
             href={selected.job.url}
             target="_blank"

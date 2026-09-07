@@ -64,6 +64,7 @@ describe('review queue interactions', () => {
         'sponsorship_required',
       ),
     ];
+    jobs[1].job.company = 'Other';
     jobs[0].job.description =
       'Lead architecture.&amp;nbsp;\\</p> \\&lt;p&gt;\\&lt;br&gt;Improve delivery &amp;amp; reliability.';
     vi.stubGlobal(
@@ -77,7 +78,9 @@ describe('review queue interactions', () => {
               : input.url;
         if (url.startsWith('/api/jobs')) {
           return Response.json({
-            jobs,
+            jobs: url.includes('company=Example')
+              ? jobs.filter((entry) => entry.job.company === 'Example')
+              : jobs,
             meta: { ranking_ms: 5, cached: false },
           });
         }
@@ -150,9 +153,11 @@ describe('review queue interactions', () => {
         screen.queryByRole('link', { name: /Open employer application/ }),
       ).toBeNull();
     });
-    expect(
-      screen.queryByRole('button', { name: /Confirmation Architect/ }),
-    ).toBeNull();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: /Confirmation Architect/ }),
+      ).toBeNull();
+    });
   });
 
   test('supports keyboard navigation, review shortcuts, and mobile selection context', async () => {
@@ -209,5 +214,26 @@ describe('review queue interactions', () => {
         'Confirmation Architect',
       );
     });
+  });
+
+  test('drills into distinct roles from the selected company and returns to the queue', async () => {
+    render(<Home />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Verified Architect/ }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'More from Example' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Example roles' }),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: /Confirmation Architect/ }),
+      ).toBeNull();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Show all companies' }));
+    expect(
+      await screen.findByRole('heading', { name: 'New roles' }),
+    ).toBeTruthy();
   });
 });

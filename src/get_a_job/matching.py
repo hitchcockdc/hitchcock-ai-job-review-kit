@@ -51,6 +51,9 @@ _ROLE_SKILL_TERMS: dict[str, tuple[str, ...]] = {
     "Argo CD": ("Argo CD", "ArgoCD"), "GitHub Actions": ("GitHub Actions",), "Jenkins": ("Jenkins",),
     "MLOps": ("MLOps", "ML Ops"), "Model serving": ("model serving", "inference serving"),
     "Vector databases": ("vector database", "vector DB"), "API gateway": ("API gateway",),
+    "Data governance": ("data governance",), "Data catalogs": ("data catalog", "data catalogs"),
+    "Knowledge graphs": ("knowledge graph", "knowledge graphs"),
+    "Ontologies": ("ontology", "ontologies"),
     "Agile": ("Agile",), "Scrum": ("Scrum",), "Jira": ("Jira",),
 }
 
@@ -102,6 +105,30 @@ _SPONSORSHIP_AVAILABLE_PATTERNS = (
 def _contains(text: str, phrase: str) -> bool:
     pattern = r"(?<!\w)" + re.escape(phrase.lower()) + r"(?!\w)"
     return re.search(pattern, text.lower()) is not None
+
+
+def _title_matches(job_title: str, target_title: str) -> bool:
+    """Treat the common Solution/Solutions Architect title forms as equivalent."""
+    variants = {target_title}
+    if re.search(r"\bsolutions architect\b", target_title, re.IGNORECASE):
+        variants.add(
+            re.sub(
+                r"\bsolutions architect\b",
+                "solution architect",
+                target_title,
+                flags=re.IGNORECASE,
+            )
+        )
+    elif re.search(r"\bsolution architect\b", target_title, re.IGNORECASE):
+        variants.add(
+            re.sub(
+                r"\bsolution architect\b",
+                "solutions architect",
+                target_title,
+                flags=re.IGNORECASE,
+            )
+        )
+    return any(_contains(job_title, variant) for variant in variants)
 
 
 @lru_cache(maxsize=32)
@@ -204,6 +231,23 @@ def _role_requirement_skills(description: str, required_only: bool = False) -> l
         sentence for sentence in _sentences(description)
         if re.search(rf"\b({markers})\b", sentence.lower())
     )
+    section_markers = r"minimum qualifications|qualifications"
+    if not required_only:
+        section_markers += r"|preferred qualifications|preferred|nice to have|bonus"
+    section_stops = (
+        r"preferred qualifications|preferred|additional information|benefits|"
+        r"compensation|company description|equal opportunity|about (?:us|the company)"
+    )
+    requirement_sections = " ".join(
+        match.group(1)
+        for match in re.finditer(
+            rf"\b(?:{section_markers})\s*:\s*(.*?)(?=\b(?:{section_stops})\s*:|$)",
+            description,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
+    if requirement_sections:
+        requirement_text = f"{requirement_text} {requirement_sections}"
     return _description_role_skills(requirement_text)
 
 
@@ -369,8 +413,12 @@ def score_job(
             authorization_verification=authorization_verification,
         )
 
-    title_matches = [title for title in profile.target_titles if _contains(job.title, title)]
-    priority_matches = [title for title in profile.title_priorities if _contains(job.title, title)]
+    title_matches = [
+        title for title in profile.target_titles if _title_matches(job.title, title)
+    ]
+    priority_matches = [
+        title for title in profile.title_priorities if _title_matches(job.title, title)
+    ]
     matched_skills = _matched_profile_skills(profile, title_and_description)
     required_role_skills = _role_requirement_skills(job.description, required_only=True)
     requirement_role_skills = _role_requirement_skills(job.description)

@@ -80,6 +80,7 @@ export default function Home() {
     useState<LocationVerificationFilter>('all');
   const [authorizationVerification, setAuthorizationVerification] =
     useState<AuthorizationVerificationFilter>('all');
+  const [companyFilter, setCompanyFilter] = useState<string | null>(null);
   const [queueMeta, setQueueMeta] = useState<QueueMeta | null>(null);
   const [queueLoading, setQueueLoading] = useState(true);
   const [queueLoaded, setQueueLoaded] = useState(false);
@@ -89,8 +90,11 @@ export default function Home() {
     setError('');
     setQueueLoading(true);
     try {
+      const companyQuery = companyFilter
+        ? `&company=${encodeURIComponent(companyFilter)}`
+        : '';
       const [jobsResponse, statsResponse] = await Promise.all([
-        fetch(`${API}/api/jobs?status=${status}&limit=50`),
+        fetch(`${API}/api/jobs?status=${status}&limit=50${companyQuery}`),
         fetch(`${API}/api/stats`),
       ]);
       if (!jobsResponse.ok || !statsResponse.ok)
@@ -101,7 +105,12 @@ export default function Home() {
       };
       setItems(jobs.jobs);
       setQueueMeta(jobs.meta ?? null);
-      setStats(await statsResponse.json());
+      const nextStats = (await statsResponse.json()) as Stats;
+      setStats(
+        jobs.meta?.candidate_cache
+          ? { ...nextStats, candidate_cache: jobs.meta.candidate_cache }
+          : nextStats,
+      );
       setSelected(
         (current) =>
           (current &&
@@ -118,7 +127,7 @@ export default function Home() {
     } finally {
       setQueueLoading(false);
     }
-  }, [status]);
+  }, [status, companyFilter]);
   const loadSettings = useCallback(async (showDraft = false) => {
     try {
       const [configResponse, decisionsResponse] = await Promise.all([
@@ -642,8 +651,15 @@ export default function Home() {
             visibleItems={visibleItems}
             selected={selected}
             error={error}
+            companyFilter={companyFilter}
+            onClearCompanyFilter={() => {
+              setCompanyFilter(null);
+              setSelected(null);
+              setReviewMessage('Showing roles from all companies.');
+            }}
             onStatusChange={(nextStatus) => {
               setStatus(nextStatus);
+              setCompanyFilter(null);
               setSelected(null);
               setReviewMessage(`${labels[nextStatus]} queue selected.`);
             }}
@@ -681,6 +697,11 @@ export default function Home() {
             onNoteChange={setNote}
             onReview={(nextStatus) => void review(nextStatus)}
             onMissingSkillClick={setPendingSkill}
+            onViewCompany={(company) => {
+              setCompanyFilter(company);
+              setSelected(null);
+              setReviewMessage(`Showing roles from ${company}.`);
+            }}
           />
         </div>
       )}
