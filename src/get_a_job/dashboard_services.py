@@ -31,7 +31,15 @@ class ScoringPreviewService:
     def __init__(self, store: Store) -> None:
         self.store = store
 
-    def preview(self, weights: object, limit: int = 10) -> dict[str, object]:
+    def preview(
+        self,
+        weights: object,
+        limit: int = 10,
+        current_snapshot: list[dict[str, object]] | None = None,
+        eligible_jobs: list[Job] | None = None,
+        queue_size: int | None = None,
+        candidate_set_reused: bool = False,
+    ) -> dict[str, object]:
         current_profile = self.store.load_profile()
         proposed_profile = CandidateProfile.from_dict(
             {**asdict(current_profile), "scoring_weights": weights}
@@ -40,32 +48,55 @@ class ScoringPreviewService:
             current_profile.preferences_to_confirm.get("ignored_learning_terms", [])
         )
         signals = self.store.decision_signals().filtered(ignored)
-        jobs = self.store.list_jobs(["new"])
+        jobs = eligible_jobs if eligible_jobs is not None else self.store.list_jobs(["new"])
+        total_jobs = len(jobs) if queue_size is None else queue_size
+        eligibility_prevalidated = eligible_jobs is not None
         ranking_limit = max(limit * 3, 30)
-        current = shortlist(
-            current_profile,
-            jobs,
-            limit=ranking_limit,
-            per_company=1,
-            decision_signals=signals,
-        )
+        if current_snapshot is None:
+            current = shortlist(
+                current_profile,
+                jobs,
+                limit=ranking_limit,
+                per_company=1,
+                decision_signals=signals,
+                eligibility_prevalidated=eligibility_prevalidated,
+            )
+            current_rows = [
+                {
+                    "job_key": job.key,
+                    "title": job.title,
+                    "company": job.company,
+                    "score": result.score,
+                }
+                for result, job in current
+            ]
+        else:
+            current_rows = current_snapshot[:ranking_limit]
         proposed = shortlist(
             proposed_profile,
             jobs,
             limit=ranking_limit,
             per_company=1,
             decision_signals=signals,
+            eligibility_prevalidated=eligibility_prevalidated,
         )
 
         current_by_key = {
-            job.key: (rank, result.score, job)
-            for rank, (result, job) in enumerate(current, start=1)
+            str(row["job_key"]): (
+                rank,
+                int(row["score"]),
+                str(row["title"]),
+                str(row["company"]),
+            )
+            for rank, row in enumerate(current_rows, start=1)
         }
         proposed_by_key = {
-            job.key: (rank, result.score, job)
+            job.key: (rank, result.score, job.title, job.company)
             for rank, (result, job) in enumerate(proposed, start=1)
         }
-        visible_keys = {job.key for _, job in current[:limit]} | {
+        visible_keys = {
+            str(row["job_key"]) for row in current_rows[:limit]
+        } | {
             job.key for _, job in proposed[:limit]
         }
         ordered_keys = sorted(
@@ -82,12 +113,11 @@ class ScoringPreviewService:
             selected_value = proposed_value or current_value
             if selected_value is None:
                 continue
-            job = selected_value[2]
             rows.append(
                 {
                     "job_key": key,
-                    "title": job.title,
-                    "company": job.company,
+                    "title": selected_value[2],
+                    "company": selected_value[3],
                     "current_score": current_value[1] if current_value else None,
                     "proposed_score": proposed_value[1] if proposed_value else None,
                     "current_rank": current_value[0] if current_value else None,
@@ -98,8 +128,10 @@ class ScoringPreviewService:
             "rows": rows,
             "current_weights": current_profile.scoring_weights,
             "proposed_weights": proposed_profile.scoring_weights,
-            "queue_size": len(jobs),
+            "queue_size": total_jobs,
             "persisted": False,
+            "current_snapshot_reused": current_snapshot is not None,
+            "candidate_set_reused": candidate_set_reused,
         }
 
 

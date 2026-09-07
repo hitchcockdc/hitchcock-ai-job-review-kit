@@ -13,8 +13,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from get_a_job.matching import score_job
 from get_a_job.ranking import shortlist
-from get_a_job.models import CandidateProfile
+from get_a_job.models import CandidateProfile, Job
 from get_a_job.refresher import SourceRefresher
 from get_a_job.resume import (
     draft_profile, replace_docx_atomically, replace_resume_atomically,
@@ -42,6 +43,72 @@ class DashboardHandler(BaseHTTPRequestHandler):
     }
     ranking_cache: dict[tuple[object, ...], dict[str, object]] = {}
     ranking_cache_lock = threading.Lock()
+    candidate_cache: dict[tuple[object, ...], tuple[list[Job], int]] = {}
+    candidate_cache_lock = threading.Lock()
+
+    def _cached_eligible_candidates(
+        self, status: str, profile: CandidateProfile
+    ) -> tuple[list[Job], int, bool]:
+        """Reuse deserialized jobs whose hard eligibility inputs have not changed."""
+        profile_token = json.dumps(
+            asdict(profile), sort_keys=True, separators=(",", ":")
+        )
+        key = (status, profile_token, self.store.ranking_revision(status))
+        with self.candidate_cache_lock:
+            cached = self.candidate_cache.get(key)
+        if cached is not None:
+            jobs, queue_size = cached
+            return jobs, queue_size, True
+
+        all_jobs = self.store.list_jobs([status])
+        eligible_jobs = [
+            job
+            for job in all_jobs
+            if score_job(
+                profile,
+                job,
+                include_evidence=False,
+                include_details=False,
+                eligibility_only=True,
+            ).eligible
+        ]
+        with self.candidate_cache_lock:
+            if len(self.candidate_cache) >= 4:
+                self.candidate_cache.clear()
+            self.candidate_cache[key] = (eligible_jobs, len(all_jobs))
+        return eligible_jobs, len(all_jobs), False
+
+    def _cached_new_queue_snapshot(
+        self, profile: CandidateProfile, minimum_limit: int
+    ) -> list[dict[str, object]] | None:
+        profile_token = json.dumps(
+            asdict(profile), sort_keys=True, separators=(",", ":")
+        )
+        revision = self.store.ranking_revision("new")
+        with self.ranking_cache_lock:
+            candidates = [
+                (int(key[1]), payload)
+                for key, payload in self.ranking_cache.items()
+                if key[0] == "new"
+                and int(key[1]) >= minimum_limit
+                and key[2] == profile_token
+                and key[3] == revision
+            ]
+            if not candidates:
+                return None
+            _, payload = min(candidates, key=lambda candidate: candidate[0])
+            cached_jobs = payload.get("jobs", [])
+            if not isinstance(cached_jobs, list):
+                return None
+            return [
+                {
+                    "job_key": str(item["job"]["key"]),
+                    "title": str(item["job"]["title"]),
+                    "company": str(item["job"]["company"]),
+                    "score": int(item["match"]["score"]),
+                }
+                for item in cached_jobs[:minimum_limit]
+            ]
 
     def _json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -140,14 +207,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
             with self.ranking_cache_lock:
                 payload = self.ranking_cache.get(cache_key)
                 if payload is None:
-                    records = self.store.list_job_records([status])
+                    candidate_jobs, _, candidate_cache_reused = (
+                        self._cached_eligible_candidates(status, profile)
+                    )
                     ignored = set(profile.preferences_to_confirm.get("ignored_learning_terms", []))
                     ranked = shortlist(
                         profile,
-                        [job for job, _ in records],
+                        candidate_jobs,
                         limit=limit,
                         per_company=1,
                         decision_signals=self.store.decision_signals().filtered(ignored),
+                        eligibility_prevalidated=True,
                     )
                     payload = {
                         "jobs": [
@@ -157,7 +227,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                 "status": status,
                             }
                             for result, job in ranked
-                        ]
+                        ],
+                        "candidate_cache_reused": candidate_cache_reused,
                     }
                     if len(self.ranking_cache) >= 16:
                         self.ranking_cache.clear()
@@ -193,7 +264,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 if not isinstance(requested_limit, int) or isinstance(requested_limit, bool):
                     raise ValueError("limit must be a whole number")
                 limit = min(max(requested_limit, 1), 20)
-                preview = self.scoring_preview.preview(payload.get("weights"), limit)
+                profile = self.store.load_profile()
+                current_snapshot = self._cached_new_queue_snapshot(
+                    profile, max(limit * 3, 30)
+                )
+                eligible_jobs, queue_size, candidate_set_reused = (
+                    self._cached_eligible_candidates("new", profile)
+                )
+                preview = self.scoring_preview.preview(
+                    payload.get("weights"),
+                    limit,
+                    current_snapshot,
+                    eligible_jobs,
+                    queue_size,
+                    candidate_set_reused,
+                )
             except (ValueError, json.JSONDecodeError) as error:
                 self._json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
                 return

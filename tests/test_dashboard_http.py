@@ -25,6 +25,8 @@ class DashboardHttpTests(unittest.TestCase):
         DashboardHandler.store = self.store
         DashboardHandler.config_dir = root / "config"
         DashboardHandler.refresh_minutes = 0
+        DashboardHandler.ranking_cache = {}
+        DashboardHandler.candidate_cache = {}
         DashboardHandler.applications = ApplicationService(self.store)
         DashboardHandler.scoring_preview = ScoringPreviewService(self.store)
         DashboardHandler.tailoring = TailoringService(self.store, DashboardHandler.config_dir)
@@ -104,18 +106,44 @@ class DashboardHttpTests(unittest.TestCase):
         weights = asdict(self.store.load_profile())["scoring_weights"]
         weights = {**weights, "required_skills": 35, "role_skills": 20}
 
+        status, uncached_payload = self.request(
+            "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(uncached_payload["current_snapshot_reused"])
+        self.assertFalse(uncached_payload["candidate_set_reused"])
+
+        status, _ = self.request("GET", "/api/jobs?status=new&limit=50")
+        self.assertEqual(status, 200)
+
         status, payload = self.request(
             "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
         )
 
         self.assertEqual(status, 200)
         self.assertFalse(payload["persisted"])
+        self.assertTrue(payload["current_snapshot_reused"])
+        self.assertTrue(payload["candidate_set_reused"])
         self.assertEqual(payload["queue_size"], 1)
         self.assertEqual(payload["rows"][0]["job_key"], preview_job.key)
         self.assertNotEqual(
             payload["proposed_weights"],
             asdict(self.store.load_profile())["scoring_weights"],
         )
+
+        self.store.upsert_jobs([
+            Job(
+                "test", "3", "Platform Architect", "GammaCo",
+                "https://example.com/3", "Python", location="Remote - US",
+                remote=True,
+            )
+        ])
+        status, refreshed_payload = self.request(
+            "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(refreshed_payload["candidate_set_reused"])
+        self.assertEqual(refreshed_payload["queue_size"], 2)
 
         status, payload = self.request(
             "POST", "/api/scoring-preview", {"weights": {"required_skills": 100}}

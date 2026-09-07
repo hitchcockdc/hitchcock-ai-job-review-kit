@@ -135,7 +135,12 @@ class ConnectorTests(unittest.TestCase):
             return payloads["detail"] if url.endswith("/101") else payloads["list"]
 
         jobs = fetch_smartrecruiters(
-            {"type": "smartrecruiters", "company_identifier": "Acme"}, fetch
+            {
+                "type": "smartrecruiters",
+                "company_identifier": "Acme",
+                "title_terms": ["architect"],
+            },
+            fetch,
         )
 
         self.assertIn("destination=PUBLIC", urls[0])
@@ -147,8 +152,19 @@ class ConnectorTests(unittest.TestCase):
         self.assertEqual((jobs[0].salary_min, jobs[0].salary_max), (150000, 190000))
         self.assertEqual(
             jobs[0].description,
-            "Job Description: Lead AI platform delivery. Qualifications: Python & Kubernetes required.",
+            "Job Description: Lead AI platform delivery. Qualifications: Python & Kubernetes required. Company Description: Acme builds enterprise products.",
         )
+        self.assertEqual(jobs[0].location, "Remote - Madrid, ES")
+
+        no_matches = fetch_smartrecruiters(
+            {
+                "type": "smartrecruiters",
+                "company_identifier": "Acme",
+                "title_terms": ["accountant"],
+            },
+            lambda _: payloads["list"],
+        )
+        self.assertEqual(no_matches, [])
 
     def test_smartrecruiters_rejects_invalid_list_and_detail_shapes(self):
         source = {"type": "smartrecruiters", "company_identifier": "Acme"}
@@ -158,6 +174,48 @@ class ConnectorTests(unittest.TestCase):
         calls = iter([{"content": [{"id": "1", "name": "Architect"}]}, []])
         with self.assertRaisesRegex(ValueError, "details must be an object"):
             fetch_smartrecruiters(source, lambda _: next(calls))
+        with self.assertRaisesRegex(ValueError, "title_terms"):
+            fetch_smartrecruiters(
+                {**source, "title_terms": "architect"}, lambda _: {"content": []}
+            )
+
+    def test_smartrecruiters_can_find_prioritized_titles_on_later_pages(self):
+        source = {
+            "type": "smartrecruiters",
+            "company_identifier": "Acme",
+            "max_postings": 1,
+            "max_listing_pages": 2,
+            "title_terms": ["technical program manager", "architect"],
+        }
+        first_page = {
+            "totalFound": 101,
+            "content": [
+                {"id": str(index), "name": "Unrelated role"}
+                for index in range(100)
+            ],
+        }
+        second_page = {
+            "totalFound": 101,
+            "content": [{"id": "target", "name": "Principal Technical Program Manager"}],
+        }
+        detail = {
+            "id": "target",
+            "name": "Principal Technical Program Manager",
+            "active": True,
+            "postingUrl": "https://jobs.smartrecruiters.com/Acme/target",
+            "location": {"country": "us", "remote": True},
+            "jobAd": {"sections": {"jobDescription": {"text": "Lead delivery."}}},
+        }
+
+        def fetch(url):
+            if url.endswith("/target"):
+                return detail
+            return second_page if "offset=100" in url else first_page
+
+        jobs = fetch_smartrecruiters(source, fetch)
+
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].title, "Principal Technical Program Manager")
 
     def test_resilient_fetch_retains_all_multi_request_payloads(self):
         responses = iter(

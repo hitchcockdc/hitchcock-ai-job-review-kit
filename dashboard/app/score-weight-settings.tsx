@@ -258,7 +258,15 @@ export function ScoreWeightSettings({
               <Badge variant="outline">
                 {queuePreview.queue_size.toLocaleString()} new roles evaluated
               </Badge>
-              <span>Tentative weights were not saved.</span>
+              <span>
+                Tentative weights were not saved.
+                {queuePreview.current_snapshot_reused
+                  ? ' Current dashboard ranking reused.'
+                  : ''}
+                {queuePreview.candidate_set_reused
+                  ? ' Eligible queue reused.'
+                  : ' Eligible queue refreshed.'}
+              </span>
             </div>
             <Table>
               <TableCaption>

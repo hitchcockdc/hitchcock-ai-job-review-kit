@@ -19,6 +19,8 @@
     "type": "smartrecruiters",
     "company": "Example SmartRecruiters Company",
     "company_identifier": "CompanyIdentifier",
-    "max_postings": 100
+    "max_postings": 25,
+    "max_listing_pages": 5,
+    "title_terms": ["architect", "technical program manager"]
   }
 ]

@@ -242,10 +242,10 @@ def _smartrecruiters_description(item: dict[str, Any]) -> str:
     if not isinstance(sections, dict):
         raise ValueError("SmartRecruiters posting contained invalid job-ad sections")
     labels = {
-        "companyDescription": "Company description",
         "jobDescription": "Job description",
         "qualifications": "Qualifications",
         "additionalInformation": "Additional information",
+        "companyDescription": "Company description",
     }
     content = []
     for key in labels:
@@ -292,24 +292,66 @@ def fetch_smartrecruiters(
     if not isinstance(requested_max, int) or isinstance(requested_max, bool):
         raise ValueError("SmartRecruiters max_postings must be a whole number")
     max_postings = min(max(requested_max, 1), 100)
+    requested_pages = source.get("max_listing_pages", 1)
+    if not isinstance(requested_pages, int) or isinstance(requested_pages, bool):
+        raise ValueError("SmartRecruiters max_listing_pages must be a whole number")
+    max_listing_pages = min(max(requested_pages, 1), 10)
+    title_terms_value = source.get("title_terms", [])
+    if not isinstance(title_terms_value, list) or not all(
+        isinstance(term, str) for term in title_terms_value
+    ):
+        raise ValueError("SmartRecruiters title_terms must be a list of text values")
+    title_terms = [term.strip().lower() for term in title_terms_value if term.strip()]
     base = f"https://api.smartrecruiters.com/v1/companies/{identifier}/postings"
-    payload = fetch(
-        f"{base}?limit={max_postings}&offset=0&destination=PUBLIC"
-    )
-    if not isinstance(payload, dict):
-        raise ValueError("SmartRecruiters response must be an object")
-    postings = payload.get("content", [])
-    if not isinstance(postings, list):
-        raise ValueError("SmartRecruiters response contained invalid postings")
+    summaries: list[tuple[int, int, dict[str, Any]]] = []
+    seen_postings: set[str] = set()
+    sequence = 0
+    for page in range(max_listing_pages):
+        offset = page * 100
+        payload = fetch(
+            f"{base}?limit=100&offset={offset}&destination=PUBLIC"
+        )
+        if not isinstance(payload, dict):
+            raise ValueError("SmartRecruiters response must be an object")
+        postings = payload.get("content", [])
+        if not isinstance(postings, list):
+            raise ValueError("SmartRecruiters response contained invalid postings")
+        for summary in postings:
+            if not isinstance(summary, dict):
+                continue
+            posting_id = str(summary.get("id") or summary.get("uuid") or "").strip()
+            title = _plain(summary.get("name"))
+            if not posting_id or not title or posting_id in seen_postings:
+                continue
+            title_rank = next(
+                (
+                    index
+                    for index, term in enumerate(title_terms)
+                    if term in title.lower()
+                ),
+                len(title_terms),
+            )
+            if title_terms and title_rank == len(title_terms):
+                continue
+            summaries.append((title_rank, sequence, summary))
+            seen_postings.add(posting_id)
+            sequence += 1
+        try:
+            total_found = int(payload.get("totalFound", 0))
+        except (TypeError, ValueError):
+            total_found = 0
+        if len(postings) < 100 or (total_found and offset + len(postings) >= total_found):
+            break
+    summaries.sort(key=lambda item: (item[0], item[1]))
 
     jobs = []
-    for summary in postings[:max_postings]:
-        if not isinstance(summary, dict):
-            continue
+    details_requested = 0
+    for _, _, summary in summaries:
         posting_id = str(summary.get("id") or summary.get("uuid") or "").strip()
         title = _plain(summary.get("name"))
-        if not posting_id or not title:
-            continue
+        if details_requested == max_postings:
+            break
+        details_requested += 1
         detail = fetch(f"{base}/{quote(posting_id, safe='')}")
         if not isinstance(detail, dict):
             raise ValueError("SmartRecruiters posting details must be an object")
@@ -325,10 +367,16 @@ def fetch_smartrecruiters(
         location_data = detail.get("location") or summary.get("location") or {}
         if not isinstance(location_data, dict):
             location_data = {}
+        structured_country = _plain(location_data.get("country"))
+        country_label = (
+            structured_country.upper()
+            if len(structured_country) == 2
+            else structured_country
+        )
         location_parts = [
             _plain(location_data.get("city")),
             _plain(location_data.get("region")),
-            _plain(location_data.get("country")),
+            country_label,
         ]
         location = ", ".join(part for part in location_parts if part)
         remote = bool(location_data.get("remote")) or str(
@@ -336,7 +384,6 @@ def fetch_smartrecruiters(
         ).upper() == "REMOTE"
         if remote:
             location = f"Remote - {location}" if location else "Remote"
-        structured_country = _plain(location_data.get("country"))
         country, countries, regions = _location_metadata(
             structured_country or location,
             structured=bool(structured_country),

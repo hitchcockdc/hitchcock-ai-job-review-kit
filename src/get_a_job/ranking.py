@@ -41,19 +41,16 @@ def shortlist(
     limit: int = 10,
     per_company: int = 1,
     decision_signals: DecisionSignals | None = None,
+    eligibility_prevalidated: bool = False,
 ) -> list[tuple[MatchResult, Job]]:
     """Rank eligible jobs, retaining the best regional variant and limiting company repetition."""
     # Apply the inexpensive hard filters first. Otherwise, high-signal foreign
     # roles can consume the preselection window and hide eligible US roles.
     if len(jobs) > 500:
-        eligible_jobs = [
-            job
-            for job in jobs
+        eligible_jobs = jobs if eligibility_prevalidated else [
+            job for job in jobs
             if score_job(
-                profile,
-                job,
-                include_evidence=False,
-                include_details=False,
+                profile, job, include_evidence=False, include_details=False,
                 eligibility_only=True,
             ).eligible
         ]

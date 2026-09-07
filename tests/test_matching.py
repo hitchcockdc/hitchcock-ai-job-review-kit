@@ -220,6 +220,30 @@ class MatchingTests(unittest.TestCase):
         self.assertEqual((result.matched_role_skill_count, result.role_skill_count), (2, 7))
         self.assertTrue(all(entry["confidence"] == "medium" for entry in result.role_skill_contexts))
 
+    def test_equal_opportunity_identity_language_is_not_an_iam_skill(self):
+        job = Job(
+            "test", "eeo", "Solution Architect", "Example", "https://example.com/eeo",
+            (
+                "Required qualifications: Tableau experience. "
+                "All qualified applicants will receive consideration without regard "
+                "to gender identity or any other characteristic protected by law."
+            ),
+            remote=True,
+        )
+        result = score_job(self.profile, job)
+        self.assertNotIn("Identity & access management", result.missing_skills)
+        self.assertNotIn("Identity & access management", result.required_role_skills)
+
+    def test_explicit_identity_and_oauth_language_is_an_iam_skill(self):
+        job = Job(
+            "test", "iam", "Platform Architect", "Example", "https://example.com/iam",
+            "Hands-on technical depth across identity and OAuth platform architecture.",
+            remote=True,
+        )
+        result = score_job(self.profile, job)
+        self.assertIn("Identity & access management", result.buried_role_skills)
+        self.assertIn("OAuth", result.buried_role_skills)
+
     def test_recurring_platform_capabilities_are_detected_in_role_narrative(self):
         profile = CandidateProfile(
             name="Candidate", target_titles=["architect"], skills=["PostgreSQL", "SSO"], remote_ok=True,

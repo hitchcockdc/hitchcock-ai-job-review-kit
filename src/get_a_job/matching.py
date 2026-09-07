@@ -30,7 +30,16 @@ _ROLE_SKILL_TERMS: dict[str, tuple[str, ...]] = {
     "Generative AI": ("generative AI",), "AI evaluation": ("AI evaluation", "model evaluation"),
     "Agent architecture": ("agent architecture", "agentic architecture", "agent and MCP architecture"),
     "MCP": ("MCP", "Model Context Protocol"),
-    "Identity & access management": ("identity", "identity and access", "identity management", "identity systems"),
+    # A bare "identity" commonly appears in equal-opportunity notices (for
+    # example, "gender identity") and is not evidence of an IAM requirement.
+    "Identity & access management": (
+        "identity and access",
+        "identity & access",
+        "identity management",
+        "identity systems",
+        "identity and OAuth",
+        "identity & OAuth",
+    ),
     "OAuth": ("OAuth", "OpenID Connect", "OIDC"),
     "CI/CD": ("CI/CD", "continuous integration", "continuous delivery", "continuous deployment"),
     "Infrastructure as code": ("infrastructure as code", "IaC", "CloudFormation"),

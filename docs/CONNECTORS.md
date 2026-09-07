@@ -11,7 +11,7 @@ application, contact an employer, or bypass a site's access controls.
 | `greenhouse` | Greenhouse Job Board API | `board_token` | One request includes job content. |
 | `lever` | Lever Postings API | `site` | Set `region` to `eu` for EU-hosted boards. |
 | `ashby` | Ashby Posting API | `job_board_name` | Compensation is requested when available. |
-| `smartrecruiters` | SmartRecruiters Posting API | `company_identifier` | Reads the public list, then each posting's complete sections; `max_postings` is capped at 100. |
+| `smartrecruiters` | SmartRecruiters Posting API | `company_identifier` | Reads up to 100 list records per configured page, then complete sections for at most `max_postings`; optional `title_terms` avoid irrelevant detail requests. |
 | `yc` | YC Work at a Startup public page | `board_token` | Normalizes public page data without an account. |
 | `usajobs` | USAJOBS Search API | `board_token` | Requires a private API key and user-agent email. |
 
@@ -20,6 +20,13 @@ list and detail endpoints and notes that list records can omit fields. Requests 
 use `destination=PUBLIC`; the connector does not send an API key and does not access internal
 postings. It joins the documented company description, job description, qualifications, and
 additional-information sections before applying common HTML cleanup.
+
+For a large global employer, set `title_terms` to stable role-family phrases such as
+`["architect", "technical program manager"]`. Filtering is case-insensitive and applies to
+the public list title before detail requests, so it reduces network traffic without treating
+description keywords as title matches. Terms earlier in the list are fetched first. Large
+employers can set `max_listing_pages` from 1–10 to scan older active list pages while retaining
+the `max_postings` cap on detail requests. Omitting `title_terms` preserves broad discovery.
 
 ## Normalized job fields
 

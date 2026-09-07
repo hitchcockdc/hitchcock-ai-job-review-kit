@@ -107,6 +107,8 @@ describe('score weight comparison', () => {
             proposed_weights: DEFAULT_SCORING_WEIGHTS,
             queue_size: 24,
             persisted: false,
+            current_snapshot_reused: true,
+            candidate_set_reused: true,
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -124,7 +126,11 @@ describe('score weight comparison', () => {
     expect(await screen.findByText('Platform Architect')).toBeTruthy();
     expect(screen.getByText('68 → 72')).toBeTruthy();
     expect(screen.getByText('#4 → #2')).toBeTruthy();
-    expect(screen.getByText('Tentative weights were not saved.')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Tentative weights were not saved. Current dashboard ranking reused. Eligible queue reused.',
+      ),
+    ).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
 });

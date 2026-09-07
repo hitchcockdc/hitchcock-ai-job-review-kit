@@ -38,6 +38,10 @@
     },
     "jobAd": {
       "sections": {
+        "companyDescription": {
+          "title": "Company Description",
+          "text": "<p>Acme builds enterprise products.</p>"
+        },
         "jobDescription": {
           "title": "Job Description",
           "text": "<p>Lead AI platform delivery.</p>"

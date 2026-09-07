@@ -138,6 +138,8 @@ export type ScoringPreview = {
   proposed_weights: ScoringWeights;
   queue_size: number;
   persisted: false;
+  current_snapshot_reused: boolean;
+  candidate_set_reused: boolean;
 };
 
 export type TailoredDraft = {
