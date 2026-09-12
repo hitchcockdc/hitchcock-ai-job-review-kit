@@ -89,6 +89,7 @@ describe('review queue interactions', () => {
             counts: { new: 2, saved: 0, rejected: 0, applied: 0 },
             activity: { last_fetch_at: null },
             sources: [],
+            learning: { positive_decision_terms: 2, negative_decision_terms: 1 },
           });
         }
         throw new Error(`Unexpected request: ${url}`);
@@ -234,6 +235,37 @@ describe('review queue interactions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show all companies' }));
     expect(
       await screen.findByRole('heading', { name: 'New roles' }),
+    ).toBeTruthy();
+  });
+
+  test('keeps decision-note drafts with their role and returns to feedback-ranked matches', async () => {
+    render(<Home />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Verified Architect/ }),
+    );
+    const note = screen.getByLabelText('Decision note');
+    fireEvent.change(note, { target: { value: 'Excellent platform fit.' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: /Confirmation Architect/ }),
+    );
+    expect((screen.getByLabelText('Decision note') as HTMLTextAreaElement).value).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: /Verified Architect/ }));
+    expect((screen.getByLabelText('Decision note') as HTMLTextAreaElement).value).toBe('Excellent platform fit.');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Needs confirmation 1' }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Revisit strongest matches' }),
+    );
+    expect(
+      screen.getAllByText(
+        'Showing the highest-ranked new roles using your recorded feedback.',
+      ).length,
+    ).toBe(2);
+    expect(screen.getByRole('button', { name: /Verified Architect/ })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: /Confirmation Architect/ }),
     ).toBeTruthy();
   });
 });

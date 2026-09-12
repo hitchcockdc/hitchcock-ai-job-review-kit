@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, useCallback, useEffect, useState } from 'react';
-import { FileText, FileUp, Save } from 'lucide-react';
+import { FileText, FileUp, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +63,8 @@ export function SettingsPanel({
   busy,
   onSave,
   onUpload,
+  onClearCache,
+  onClearCacheHistory,
 }: {
   config: Config | null;
   stats: Stats;
@@ -73,6 +75,8 @@ export function SettingsPanel({
   busy: boolean;
   onSave: (profile: Profile, message: string) => Promise<void>;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
+  onClearCache: () => Promise<void>;
+  onClearCacheHistory: () => Promise<void>;
 }) {
   const [draftOverride, setDraftOverride] = useState<Profile | null>(null);
   const [resumeReview, setResumeReview] = useState(false);
@@ -99,6 +103,12 @@ export function SettingsPanel({
     }
   })();
   const healthy = stats.sources.filter((source) => !source.error).length;
+  const cacheHistory = stats.candidate_cache_history ?? [];
+  const warningThreshold = draft.cache_pressure_warning_threshold ?? 3;
+  const thresholdIsValid = Number.isInteger(warningThreshold) && warningThreshold >= 1 && warningThreshold <= 100;
+  const cachePressure = stats.candidate_cache
+    ? Math.max(stats.candidate_cache.evictions, stats.candidate_cache.skips) >= warningThreshold
+    : false;
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-5 py-6 lg:px-10">
       <div className="flex justify-between gap-4">
@@ -110,13 +120,32 @@ export function SettingsPanel({
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           {stats.candidate_cache && (
-            <Badge
-              variant="outline"
-              title={`${stats.candidate_cache.cached_jobs.toLocaleString()} eligible jobs across ${stats.candidate_cache.entries} cached revisions`}
-            >
-              Preview cache {Math.round(stats.candidate_cache.hit_rate * 100)}%
-              hits · ≈{cacheSize(stats.candidate_cache.estimated_bytes)}
-            </Badge>
+            <div className="flex items-center gap-1">
+              <Badge
+                variant="outline"
+                title={`${stats.candidate_cache.cached_jobs.toLocaleString()} eligible jobs across ${stats.candidate_cache.entries} cached revisions`}
+              >
+                Preview cache {Math.round(stats.candidate_cache.hit_rate * 100)}%
+                hits · ≈{cacheSize(stats.candidate_cache.estimated_bytes)}/
+                {cacheSize(stats.candidate_cache.max_bytes)}
+                {stats.candidate_cache.evictions > 0
+                  ? ` · ${stats.candidate_cache.evictions} evicted`
+                  : ''}
+                {stats.candidate_cache.skips > 0
+                  ? ` · ${stats.candidate_cache.skips} oversize skipped`
+                  : ''}
+              </Badge>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                disabled={busy || stats.candidate_cache.entries === 0}
+                onClick={() => void onClearCache()}
+                aria-label="Clear local ranking cache"
+                title="Clear local ranking cache"
+              >
+                <RotateCcw />
+              </Button>
+            </div>
           )}
           <Badge
             variant={
@@ -131,6 +160,88 @@ export function SettingsPanel({
         <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">
           {message}
         </div>
+      )}
+      {stats.candidate_cache && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-indigo-700">Local performance</p>
+              <h2 className="font-semibold">Cache activity</h2>
+            </div>
+            <span className="text-sm text-slate-500">
+              Conservative estimate: ≈{cacheSize(stats.candidate_cache.estimated_bytes)} of {cacheSize(stats.candidate_cache.max_bytes)}
+            </span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-sm text-slate-700" htmlFor="cache-pressure-threshold">
+              Warning threshold
+              <Input
+                id="cache-pressure-threshold"
+                className="w-28"
+                type="number"
+                min={1}
+                max={100}
+                value={warningThreshold}
+                onChange={(event) => update('cache_pressure_warning_threshold', Number(event.target.value))}
+              />
+            </label>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy || !thresholdIsValid || warningThreshold === (config.profile.cache_pressure_warning_threshold ?? 3)}
+              onClick={() => void save(draft, 'Cache pressure warning threshold saved locally.')}
+            >
+              <Save /> Save threshold
+            </Button>
+            {stats.ranking_cache && (
+              <span className="text-sm text-slate-500">
+                Ranking cache: ≈{cacheSize(stats.ranking_cache.estimated_bytes)}/{cacheSize(stats.ranking_cache.max_bytes)}
+              </span>
+            )}
+          </div>
+          {cachePressure && (
+            <output className="mt-3 block rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Cache pressure: at least {warningThreshold} entries have been evicted or skipped. Consider a larger local cache cap if this repeats.
+            </output>
+          )}
+          {cacheHistory.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-500">No cache activity recorded yet.</p>
+          ) : (
+            <ol className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {cacheHistory.map((sample, index) => {
+                const previous = cacheHistory[index - 1];
+                const delta = (metric: 'hits' | 'misses' | 'evictions' | 'skips') =>
+                  (sample[metric] ?? 0) - (previous?.[metric] ?? 0);
+                const rankingDelta = (metric: 'ranking_hits' | 'ranking_misses' | 'ranking_evictions') =>
+                  (sample[metric] ?? 0) - (previous?.[metric] ?? 0);
+                const displayDelta = (value: number) => `${value >= 0 ? '+' : ''}${value}`;
+                return (
+                  <li key={sample.observed_at} className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                    <time className="font-medium text-slate-800">
+                      {new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(sample.observed_at))}
+                    </time>
+                    <span className="ml-2">Δ {displayDelta(delta('hits'))} hits · {displayDelta(delta('misses'))} misses</span>
+                    <span className="mt-1 block">Δ {displayDelta(delta('evictions'))} evicted · {displayDelta(delta('skips'))} oversize skipped</span>
+                    <span className="mt-1 block">Δ {displayDelta(rankingDelta('ranking_hits'))} ranking hits · {displayDelta(rankingDelta('ranking_misses'))} ranking misses · {displayDelta(rankingDelta('ranking_evictions'))} ranking evicted</span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-500">
+              The most recent 100 aggregate samples remain local across API restarts. Cached role content itself is never persisted.
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || cacheHistory.length === 0}
+              onClick={() => void onClearCacheHistory()}
+            >
+              <Trash2 /> Clear activity history
+            </Button>
+          </div>
+        </section>
       )}
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="font-semibold">Update your resume and profile</h2>

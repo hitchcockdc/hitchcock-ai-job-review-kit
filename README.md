@@ -85,21 +85,22 @@ Create a demo database containing only the synthetic fixtures:
 ./scripts/create-public-demo.sh demo.db
 ```
 
-Start the local API:
+Start the demo dashboard. It uses the synthetic database and does not contact
+employer feeds:
 
 ```bash
-PYTHONPATH=src python3 -m get_a_job.dashboard_server --db demo.db --port 8765 --refresh-minutes 0
-```
-
-In a second terminal, start the dashboard:
-
-```bash
-cd dashboard
-npm run dev -- --port 5173
+GET_A_JOB_DB=demo.db GET_A_JOB_REFRESH_MINUTES=0 ./scripts/start-dashboard.sh
 ```
 
 Open [http://localhost:5173](http://localhost:5173). The API listens only on
 `127.0.0.1`, and the dashboard proxies `/api` requests to that loopback service.
+
+Before a public release, verify this same synthetic path without using any
+candidate data:
+
+```bash
+./scripts/verify-public-demo.sh
+```
 
 ## Configure a private workspace
 
@@ -148,6 +149,13 @@ the ignored `config/sources.private.json` file using
 The local API refreshes configured sources every three hours by default. Set
 `GET_A_JOB_REFRESH_MINUTES` before running `./scripts/start-dashboard.sh` to change the
 interval.
+
+The dashboard's in-memory eligible-role preview cache is capped at 32 MB by default.
+Set `GET_A_JOB_CANDIDATE_CACHE_MAX_MB` (1–1024) before starting the dashboard to set a
+different local memory ceiling.
+
+The ranked-role response cache is separately capped at 32 MB by default. Set
+`GET_A_JOB_RANKING_CACHE_MAX_MB` (1–1024) before starting the dashboard to change it.
 
 ## Matching and review
 
@@ -224,6 +232,15 @@ Run the dashboard release gate:
 cd dashboard
 npm run verify:release
 ```
+
+For a public release, use the combined gate from a clean private working tree:
+
+```bash
+./scripts/verify-release.sh /path/to/clean/public-checkout
+```
+
+It runs the Python and dashboard checks, verifies the synthetic demo, and confirms the
+public checkout exactly matches the sanitized export.
 
 The gate audits production dependencies, runs the complete dashboard lint and interaction
 test suites, and builds the production bundle. GitHub Actions runs equivalent checks for

@@ -39,6 +39,30 @@ def _scoring_weights(value: Any) -> dict[str, int]:
     return weights
 
 
+def _scoring_presets(value: Any) -> dict[str, dict[str, int]]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or len(value) > 12:
+        raise ValueError("scoring presets must contain at most 12 named presets")
+    presets: dict[str, dict[str, int]] = {}
+    for name, weights in value.items():
+        clean_name = str(name).strip()
+        if not clean_name or len(clean_name) > 60:
+            raise ValueError("scoring preset names must be 1 to 60 characters")
+        if clean_name in presets:
+            raise ValueError("scoring preset names must be unique")
+        presets[clean_name] = _scoring_weights(weights)
+    return presets
+
+
+def _cache_pressure_warning_threshold(value: Any) -> int:
+    if value is None:
+        return 3
+    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= 100:
+        raise ValueError("cache pressure warning threshold must be a whole number from 1 to 100")
+    return value
+
+
 def _strings(value: Any) -> list[str]:
     if value is None:
         return []
@@ -66,6 +90,8 @@ class CandidateProfile:
     scoring_weights: dict[str, int] = field(
         default_factory=lambda: dict(DEFAULT_SCORING_WEIGHTS)
     )
+    scoring_presets: dict[str, dict[str, int]] = field(default_factory=dict)
+    cache_pressure_warning_threshold: int = 3
     excluded_terms: list[str] = field(default_factory=list)
     skill_aliases: dict[str, list[str]] = field(default_factory=dict)
     experience_summary: dict[str, Any] = field(default_factory=dict)
@@ -98,6 +124,10 @@ class CandidateProfile:
                 data.get("consider_sponsorship_roles", True)
             ),
             scoring_weights=_scoring_weights(data.get("scoring_weights")),
+            scoring_presets=_scoring_presets(data.get("scoring_presets")),
+            cache_pressure_warning_threshold=_cache_pressure_warning_threshold(
+                data.get("cache_pressure_warning_threshold")
+            ),
             excluded_terms=_strings(data.get("excluded_terms")),
             skill_aliases={
                 str(skill): _strings(aliases)

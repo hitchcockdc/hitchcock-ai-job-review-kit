@@ -4,6 +4,7 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 api_port="${GET_A_JOB_API_PORT:-8765}"
 web_port="${GET_A_JOB_WEB_PORT:-5173}"
+database_path="${GET_A_JOB_DB:-get_a_job.db}"
 api_started=0
 
 cleanup() {
@@ -16,7 +17,7 @@ trap cleanup EXIT INT TERM
 if ! lsof -nP -iTCP:"${api_port}" -sTCP:LISTEN >/dev/null 2>&1; then
   (
     cd "${project_root}"
-    PYTHONPATH=src python3 -m get_a_job.dashboard_server --port "${api_port}" --refresh-minutes "${GET_A_JOB_REFRESH_MINUTES:-180}"
+    PYTHONPATH=src python3 -m get_a_job.dashboard_server --db "${database_path}" --port "${api_port}" --refresh-minutes "${GET_A_JOB_REFRESH_MINUTES:-180}"
   ) &
   api_pid=$!
   api_started=1

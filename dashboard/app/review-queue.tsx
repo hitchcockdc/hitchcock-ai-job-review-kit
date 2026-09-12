@@ -63,7 +63,9 @@ type ReviewQueueProps = {
   selected: Item | null;
   error: string;
   companyFilter: string | null;
+  learningSignalCount: number;
   onClearCompanyFilter: () => void;
+  onRevisitTopMatches: () => void;
   onStatusChange: (status: Status) => void;
   onCoverageMinimumChange: (minimum: number) => void;
   onLocationVerificationChange: (filter: LocationVerificationFilter) => void;
@@ -87,7 +89,9 @@ export function ReviewQueue({
   selected,
   error,
   companyFilter,
+  learningSignalCount,
   onClearCompanyFilter,
+  onRevisitTopMatches,
   onStatusChange,
   onCoverageMinimumChange,
   onLocationVerificationChange,
@@ -115,6 +119,25 @@ export function ReviewQueue({
             <span>{queueLoaded ? (stats.counts[key] ?? 0) : '—'}</span>
           </button>
         ))}
+        {learningSignalCount > 0 && (
+          <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+            <p className="text-xs font-semibold text-indigo-950">
+              Feedback-aware ranking is active
+            </p>
+            <p className="mt-1 text-xs leading-4 text-indigo-800">
+              {learningSignalCount} preference signal
+              {learningSignalCount === 1 ? '' : 's'} from your decisions help
+              rank new roles.
+            </p>
+            <button
+              type="button"
+              onClick={onRevisitTopMatches}
+              className="mt-2 text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+            >
+              Revisit strongest matches
+            </button>
+          </div>
+        )}
         <button
           type="button"
           className="mt-2 flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 lg:hidden"

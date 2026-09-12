@@ -106,6 +106,33 @@ class MatchingTests(unittest.TestCase):
                 }
             )
 
+    def test_profile_preserves_validated_named_scoring_presets(self):
+        weights = asdict(self.profile)["scoring_weights"]
+        profile = CandidateProfile.from_dict(
+            {
+                **asdict(self.profile),
+                "scoring_presets": {"Balanced": weights},
+            }
+        )
+        self.assertEqual(profile.scoring_presets, {"Balanced": weights})
+        with self.assertRaisesRegex(ValueError, "seven documented components"):
+            CandidateProfile.from_dict(
+                {
+                    **asdict(self.profile),
+                    "scoring_presets": {"Invalid": {"required_skills": 100}},
+                }
+            )
+
+    def test_profile_validates_cache_pressure_warning_threshold(self):
+        profile = CandidateProfile.from_dict(
+            {**asdict(self.profile), "cache_pressure_warning_threshold": 5}
+        )
+        self.assertEqual(profile.cache_pressure_warning_threshold, 5)
+        with self.assertRaisesRegex(ValueError, "cache pressure warning threshold"):
+            CandidateProfile.from_dict(
+                {**asdict(self.profile), "cache_pressure_warning_threshold": 0}
+            )
+
     def test_boise_local_role_is_eligible_alongside_remote_roles(self):
         job = Job(
             "test", "boise", "Software Engineer", "Example", "https://example.com/boise",

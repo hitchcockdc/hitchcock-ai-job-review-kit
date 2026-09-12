@@ -86,6 +86,8 @@ export type Profile = Record<string, unknown> & {
   work_authorized_countries: string[];
   consider_sponsorship_roles: boolean;
   scoring_weights?: ScoringWeights;
+  scoring_presets?: Record<string, ScoringWeights>;
+  cache_pressure_warning_threshold?: number;
   excluded_terms: string[];
 };
 
@@ -111,6 +113,30 @@ export type Stats = {
     negative_decision_terms: number;
   };
   candidate_cache?: CandidateCacheStats;
+  ranking_cache?: RankingCacheStats;
+  candidate_cache_history?: CandidateCacheSample[];
+};
+
+export type CandidateCacheSample = {
+  observed_at: string;
+  hits?: number;
+  misses?: number;
+  evictions?: number;
+  skips?: number;
+  ranking_hits?: number;
+  ranking_misses?: number;
+  ranking_evictions?: number;
+  ranking_skips?: number;
+};
+
+export type RankingCacheStats = {
+  hits: number;
+  misses: number;
+  evictions: number;
+  skips: number;
+  entries: number;
+  estimated_bytes: number;
+  max_bytes: number;
 };
 
 export type Learning = {
@@ -128,12 +154,16 @@ export type CandidateCacheStats = {
   entries: number;
   cached_jobs: number;
   estimated_bytes: number;
+  max_bytes: number;
+  evictions: number;
+  skips: number;
 };
 
 export type QueueMeta = {
   ranking_ms: number;
   cached: boolean;
   candidate_cache?: CandidateCacheStats;
+  ranking_cache?: RankingCacheStats;
 };
 
 export type ScoringPreviewRow = {

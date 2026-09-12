@@ -57,6 +57,17 @@ CREATE TABLE IF NOT EXISTS application_followups (
     reminder_note TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS dashboard_diagnostics (
+    key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dashboard_diagnostic_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
 """
 
 
@@ -136,6 +147,77 @@ class Store:
         if row is None:
             raise RuntimeError("no profile loaded; run import-profile first")
         return CandidateProfile.from_dict(json.loads(row["payload"]))
+
+    def save_dashboard_diagnostics(self, key: str, payload: dict[str, int]) -> None:
+        """Persist small local counters, never cached candidate or job data."""
+        self.initialize()
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO dashboard_diagnostics(key, payload, updated_at) VALUES(?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+                (key, json.dumps(payload, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+            )
+
+    def load_dashboard_diagnostics(self, key: str) -> dict[str, int]:
+        self.initialize()
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT payload FROM dashboard_diagnostics WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return {}
+        payload = json.loads(row["payload"])
+        if not isinstance(payload, dict):
+            return {}
+        return {
+            name: value
+            for name, value in payload.items()
+            if isinstance(name, str) and isinstance(value, int) and not isinstance(value, bool)
+        }
+
+    def record_dashboard_diagnostics(self, key: str, payload: dict[str, int]) -> None:
+        """Keep a bounded local timeline of aggregate diagnostics."""
+        self.initialize()
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO dashboard_diagnostic_events(key, observed_at, payload) VALUES(?, ?, ?)",
+                (key, datetime.now(timezone.utc).isoformat(), json.dumps(payload, sort_keys=True)),
+            )
+            connection.execute(
+                "DELETE FROM dashboard_diagnostic_events WHERE key = ? AND id NOT IN "
+                "(SELECT id FROM dashboard_diagnostic_events WHERE key = ? ORDER BY id DESC LIMIT 100)",
+                (key, key),
+            )
+
+    def list_dashboard_diagnostics(self, key: str, limit: int = 12) -> list[dict[str, object]]:
+        self.initialize()
+        limit = min(max(limit, 1), 100)
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT observed_at, payload FROM dashboard_diagnostic_events WHERE key = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (key, limit),
+            ).fetchall()
+        samples: list[dict[str, object]] = []
+        for row in reversed(rows):
+            payload = json.loads(row["payload"])
+            if isinstance(payload, dict):
+                samples.append({
+                    "observed_at": str(row["observed_at"]),
+                    **{
+                        name: value for name, value in payload.items()
+                        if isinstance(name, str) and isinstance(value, int) and not isinstance(value, bool)
+                    },
+                })
+        return samples
+
+    def clear_dashboard_diagnostics_history(self, key: str) -> None:
+        """Remove only retained aggregate history, preserving current counters."""
+        self.initialize()
+        with self.connect() as connection:
+            connection.execute(
+                "DELETE FROM dashboard_diagnostic_events WHERE key = ?", (key,)
+            )
 
     def upsert_jobs(self, jobs: list[Job]) -> UpsertReport:
         self.initialize()

@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DashboardHeader } from './dashboard-header';
+import { LocalApiUnavailable } from './local-api-unavailable';
 import { SettingsPanel } from './settings-panel';
 import {
   countAuthorizationVerification,
@@ -64,7 +65,7 @@ export default function Home() {
     sources: [],
   });
   const [selected, setSelected] = useState<Item | null>(null);
-  const [note, setNote] = useState('');
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [config, setConfig] = useState<Config | null>(null);
   const [profileJson, setProfileJson] = useState('');
@@ -84,7 +85,9 @@ export default function Home() {
   const [queueMeta, setQueueMeta] = useState<QueueMeta | null>(null);
   const [queueLoading, setQueueLoading] = useState(true);
   const [queueLoaded, setQueueLoaded] = useState(false);
+  const [apiUnavailable, setApiUnavailable] = useState(false);
   const queuedRefresh = useRef<number | null>(null);
+  const note = selected ? (noteDrafts[selected.job.key] ?? '') : '';
 
   const refresh = useCallback(async () => {
     setError('');
@@ -118,8 +121,14 @@ export default function Home() {
           null,
       );
       setQueueLoaded(true);
+      setApiUnavailable(false);
       return jobs.jobs;
     } catch (cause) {
+      setItems([]);
+      setSelected(null);
+      setQueueMeta(null);
+      setQueueLoaded(false);
+      setApiUnavailable(true);
       setError(
         cause instanceof Error ? cause.message : 'Could not load roles.',
       );
@@ -194,7 +203,11 @@ export default function Home() {
           throw new Error(
             payload.error || 'Could not record the review decision.',
           );
-        setNote('');
+        setNoteDrafts((drafts) => {
+          const { [selected.job.key]: _reviewedDraft, ...remainingDrafts } =
+            drafts;
+          return remainingDrafts;
+        });
         const next = nextQueueItemAfterReview(
           items,
           selected.job.key,
@@ -314,6 +327,58 @@ export default function Home() {
         cause instanceof Error
           ? cause.message
           : 'Could not save configuration.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function clearRankingCache() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API}/api/cache/reset`, {
+        method: 'POST',
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok)
+        throw new Error(payload.error || 'Could not clear the local ranking cache.');
+      setMessage('Local ranking cache cleared. The next queue load will rank fresh.');
+      await refresh();
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : 'Could not clear the local ranking cache.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function clearCacheHistory() {
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API}/api/cache/history/reset`, {
+        method: 'POST',
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        candidate_cache?: Stats['candidate_cache'];
+        candidate_cache_history?: Stats['candidate_cache_history'];
+      };
+      if (!response.ok)
+        throw new Error(payload.error || 'Could not clear local cache activity history.');
+      setStats((current) => ({
+        ...current,
+        candidate_cache: payload.candidate_cache ?? current.candidate_cache,
+        candidate_cache_history: payload.candidate_cache_history ?? [],
+      }));
+      setMessage('Local cache activity history cleared. Current counters were preserved.');
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : 'Could not clear local cache activity history.',
       );
     } finally {
       setBusy(false);
@@ -565,12 +630,16 @@ export default function Home() {
       <DashboardHeader
         view={view}
         primaryStatus={
-          queueLoading && !queueLoaded
+          apiUnavailable
+            ? 'Local API unavailable'
+            : queueLoading && !queueLoaded
             ? 'Connecting to the local queue…'
             : `Last source refresh: ${dateTime(stats.activity.last_fetch_at)}`
         }
         secondaryStatus={
-          queueLoading && !queueLoaded
+          apiUnavailable
+            ? 'Start the local service, then retry the connection.'
+            : queueLoading && !queueLoaded
             ? 'Loading queue status…'
             : `${queueMeta ? `Queue ${queueMeta.cached ? 'reused locally' : 'ranked'} in ${(queueMeta.ranking_ms / 1000).toFixed(queueMeta.ranking_ms < 1000 ? 2 : 1)}s` : 'Queue timing unavailable'} · ${healthy}/${stats.sources.length} sources healthy${queueLoading ? ' · Refreshing…' : ''}`
         }
@@ -624,7 +693,10 @@ export default function Home() {
           </dialog>
         </div>
       )}
-      {view === 'settings' ? (
+      {apiUnavailable ? (
+        <LocalApiUnavailable onRetry={() => void refresh()} />
+      ) : view === 'settings' ? (
+        <>
         <SettingsPanel
           config={config}
           stats={stats}
@@ -635,7 +707,10 @@ export default function Home() {
           busy={busy}
           onSave={saveProfile}
           onUpload={uploadResume}
+          onClearCache={clearRankingCache}
+          onClearCacheHistory={clearCacheHistory}
         />
+        </>
       ) : (
         <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-5 px-4 py-4 sm:px-5 sm:py-6 lg:grid-cols-[240px_minmax(0,1fr)_420px] lg:px-10">
           <ReviewQueue
@@ -652,10 +727,25 @@ export default function Home() {
             selected={selected}
             error={error}
             companyFilter={companyFilter}
+            learningSignalCount={
+              (stats.learning?.positive_decision_terms ?? 0) +
+              (stats.learning?.negative_decision_terms ?? 0)
+            }
             onClearCompanyFilter={() => {
               setCompanyFilter(null);
               setSelected(null);
               setReviewMessage('Showing roles from all companies.');
+            }}
+            onRevisitTopMatches={() => {
+              setStatus('new');
+              setCompanyFilter(null);
+              setCoverageMinimum(0);
+              setLocationVerification('all');
+              setAuthorizationVerification('all');
+              setSelected(null);
+              setReviewMessage(
+                'Showing the highest-ranked new roles using your recorded feedback.',
+              );
             }}
             onStatusChange={(nextStatus) => {
               setStatus(nextStatus);
@@ -694,7 +784,13 @@ export default function Home() {
             reasons={reasons}
             note={note}
             busy={busy}
-            onNoteChange={setNote}
+            onNoteChange={(value) => {
+              if (!selected) return;
+              setNoteDrafts((drafts) => ({
+                ...drafts,
+                [selected.job.key]: value,
+              }));
+            }}
             onReview={(nextStatus) => void review(nextStatus)}
             onMissingSkillClick={setPendingSkill}
             onViewCompany={(company) => {

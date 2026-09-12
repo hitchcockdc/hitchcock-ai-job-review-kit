@@ -4,7 +4,9 @@ import argparse
 import base64
 import binascii
 import json
+import os
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict
@@ -29,6 +31,26 @@ from get_a_job.dashboard_services import (
 )
 
 
+def _estimate_retained_bytes(value: object, seen: set[int] | None = None) -> int:
+    """Conservatively estimate the Python objects retained by the eligible-job cache."""
+    seen = set() if seen is None else seen
+    value_id = id(value)
+    if value_id in seen:
+        return 0
+    seen.add(value_id)
+    size = sys.getsizeof(value)
+    if isinstance(value, dict):
+        return size + sum(
+            _estimate_retained_bytes(key, seen) + _estimate_retained_bytes(item, seen)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return size + sum(_estimate_retained_bytes(item, seen) for item in value)
+    if hasattr(value, "__dict__"):
+        return size + _estimate_retained_bytes(vars(value), seen)
+    return size
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     store: Store
     config_dir: Path
@@ -42,11 +64,63 @@ class DashboardHandler(BaseHTTPRequestHandler):
         "http://[::1]:5173",
     }
     ranking_cache: dict[tuple[object, ...], dict[str, object]] = {}
+    ranking_cache_sizes: dict[tuple[object, ...], int] = {}
     ranking_cache_lock = threading.Lock()
     candidate_cache: dict[tuple[object, ...], tuple[list[Job], int, int]] = {}
     candidate_cache_lock = threading.Lock()
     candidate_cache_hits = 0
     candidate_cache_misses = 0
+    candidate_cache_evictions = 0
+    candidate_cache_skips = 0
+    ranking_cache_hits = 0
+    ranking_cache_misses = 0
+    ranking_cache_evictions = 0
+    ranking_cache_skips = 0
+
+    @classmethod
+    def restore_candidate_cache_diagnostics(cls) -> None:
+        saved = cls.store.load_dashboard_diagnostics("candidate_cache")
+        cls.candidate_cache_hits = saved.get("hits", 0)
+        cls.candidate_cache_misses = saved.get("misses", 0)
+        cls.candidate_cache_evictions = saved.get("evictions", 0)
+        cls.candidate_cache_skips = saved.get("skips", 0)
+        cls.ranking_cache_hits = saved.get("ranking_hits", 0)
+        cls.ranking_cache_misses = saved.get("ranking_misses", 0)
+        cls.ranking_cache_evictions = saved.get("ranking_evictions", 0)
+        cls.ranking_cache_skips = saved.get("ranking_skips", 0)
+
+    def _persist_cache_diagnostics(self) -> None:
+        payload = {
+            "hits": type(self).candidate_cache_hits,
+            "misses": type(self).candidate_cache_misses,
+            "evictions": type(self).candidate_cache_evictions,
+            "skips": type(self).candidate_cache_skips,
+            "ranking_hits": type(self).ranking_cache_hits,
+            "ranking_misses": type(self).ranking_cache_misses,
+            "ranking_evictions": type(self).ranking_cache_evictions,
+            "ranking_skips": type(self).ranking_cache_skips,
+        }
+        self.store.save_dashboard_diagnostics("candidate_cache", payload)
+        self.store.record_dashboard_diagnostics("candidate_cache", payload)
+
+    @staticmethod
+    def _candidate_cache_max_bytes() -> int:
+        """Return the bounded local cache budget, accepting whole MB values only."""
+        raw = os.environ.get("GET_A_JOB_CANDIDATE_CACHE_MAX_MB", "32")
+        try:
+            megabytes = int(raw)
+        except ValueError:
+            megabytes = 32
+        return min(max(megabytes, 1), 1024) * 1024 * 1024
+
+    @staticmethod
+    def _ranking_cache_max_bytes() -> int:
+        raw = os.environ.get("GET_A_JOB_RANKING_CACHE_MAX_MB", "32")
+        try:
+            megabytes = int(raw)
+        except ValueError:
+            megabytes = 32
+        return min(max(megabytes, 1), 1024) * 1024 * 1024
 
     def _cached_eligible_candidates(
         self, status: str, profile: CandidateProfile
@@ -57,12 +131,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
         )
         key = (status, profile_token, self.store.ranking_revision(status))
         with self.candidate_cache_lock:
-            cached = self.candidate_cache.get(key)
+            cached = self.candidate_cache.pop(key, None)
             if cached is not None:
+                # A regular dict retains insertion order, so reinserting makes this
+                # entry most recently used without another dependency.
+                self.candidate_cache[key] = cached
                 type(self).candidate_cache_hits += 1
                 jobs, queue_size, _ = cached
-                return jobs, queue_size, True
-            type(self).candidate_cache_misses += 1
+                reused = True
+            else:
+                type(self).candidate_cache_misses += 1
+                reused = False
+        if reused:
+            self._persist_cache_diagnostics()
+            return jobs, queue_size, True
 
         all_jobs = self.store.list_jobs([status])
         eligible_jobs = [
@@ -76,18 +158,24 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 eligibility_only=True,
             ).eligible
         ]
+        estimated_bytes = sum(_estimate_retained_bytes(job) for job in eligible_jobs)
         with self.candidate_cache_lock:
-            if len(self.candidate_cache) >= 4:
-                self.candidate_cache.clear()
-            estimated_bytes = sum(
-                len(json.dumps(asdict(job), ensure_ascii=False).encode("utf-8"))
-                for job in eligible_jobs
-            )
-            self.candidate_cache[key] = (
-                eligible_jobs,
-                len(all_jobs),
-                estimated_bytes,
-            )
+            max_bytes = self._candidate_cache_max_bytes()
+            if estimated_bytes > max_bytes:
+                type(self).candidate_cache_skips += 1
+            else:
+                used_bytes = sum(entry[2] for entry in self.candidate_cache.values())
+                while self.candidate_cache and used_bytes + estimated_bytes > max_bytes:
+                    oldest_key = next(iter(self.candidate_cache))
+                    evicted = self.candidate_cache.pop(oldest_key)
+                    used_bytes -= evicted[2]
+                    type(self).candidate_cache_evictions += 1
+                self.candidate_cache[key] = (
+                    eligible_jobs,
+                    len(all_jobs),
+                    estimated_bytes,
+                )
+        self._persist_cache_diagnostics()
         return eligible_jobs, len(all_jobs), False
 
     def _candidate_cache_diagnostics(self) -> dict[str, int | float]:
@@ -106,14 +194,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 "estimated_bytes": sum(
                     entry[2] for entry in self.candidate_cache.values()
                 ),
+                "max_bytes": self._candidate_cache_max_bytes(),
+                "evictions": self.candidate_cache_evictions,
+                "skips": self.candidate_cache_skips,
+            }
+
+    def _ranking_cache_diagnostics(self) -> dict[str, int]:
+        with self.ranking_cache_lock:
+            return {
+                "hits": self.ranking_cache_hits,
+                "misses": self.ranking_cache_misses,
+                "evictions": self.ranking_cache_evictions,
+                "skips": self.ranking_cache_skips,
+                "entries": len(self.ranking_cache),
+                "estimated_bytes": sum(self.ranking_cache_sizes.values()),
+                "max_bytes": self._ranking_cache_max_bytes(),
             }
 
     def _clear_profile_caches(self) -> None:
         """Release cache entries tied to the previous profile immediately."""
         with self.ranking_cache_lock:
             self.ranking_cache.clear()
+            self.ranking_cache_sizes.clear()
         with self.candidate_cache_lock:
             self.candidate_cache.clear()
+
+    def _clear_caches(self) -> None:
+        """Release cached rankings and eligible candidates on explicit local request."""
+        self._clear_profile_caches()
 
     def _cached_new_queue_snapshot(
         self, profile: CandidateProfile, minimum_limit: int
@@ -201,6 +309,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "refresh_minutes": self.refresh_minutes,
                     "learning": self.store.decision_signals().summary,
                     "candidate_cache": self._candidate_cache_diagnostics(),
+                    "ranking_cache": self._ranking_cache_diagnostics(),
+                    "candidate_cache_history": self.store.list_dashboard_diagnostics("candidate_cache"),
                 }
             )
             return
@@ -254,8 +364,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             started = time.perf_counter()
             cached = False
             with self.ranking_cache_lock:
-                payload = self.ranking_cache.get(cache_key)
+                payload = self.ranking_cache.pop(cache_key, None)
                 if payload is None:
+                    type(self).ranking_cache_misses += 1
                     candidate_jobs, _, candidate_cache_reused = (
                         self._cached_eligible_candidates(status, profile)
                     )
@@ -285,17 +396,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         ],
                         "candidate_cache_reused": candidate_cache_reused,
                     }
-                    if len(self.ranking_cache) >= 16:
-                        self.ranking_cache.clear()
-                    self.ranking_cache[cache_key] = payload
+                    estimated_bytes = _estimate_retained_bytes(payload)
+                    max_bytes = self._ranking_cache_max_bytes()
+                    if estimated_bytes > max_bytes:
+                        type(self).ranking_cache_skips += 1
+                    else:
+                        used_bytes = sum(self.ranking_cache_sizes.values())
+                        while self.ranking_cache and used_bytes + estimated_bytes > max_bytes:
+                            oldest_key = next(iter(self.ranking_cache))
+                            evicted = self.ranking_cache.pop(oldest_key)
+                            used_bytes -= self.ranking_cache_sizes.pop(
+                                oldest_key, _estimate_retained_bytes(evicted)
+                            )
+                            type(self).ranking_cache_evictions += 1
+                        self.ranking_cache[cache_key] = payload
+                        self.ranking_cache_sizes[cache_key] = estimated_bytes
                 else:
                     cached = True
+                    self.ranking_cache[cache_key] = payload
+                    self.ranking_cache_sizes[cache_key] = self.ranking_cache_sizes.pop(
+                        cache_key, _estimate_retained_bytes(payload)
+                    )
+                    type(self).ranking_cache_hits += 1
+            self._persist_cache_diagnostics()
             payload = {
                 **payload,
                 "meta": {
                     "ranking_ms": round((time.perf_counter() - started) * 1000),
                     "cached": cached,
                     "candidate_cache": self._candidate_cache_diagnostics(),
+                    "ranking_cache": self._ranking_cache_diagnostics(),
                 },
             }
             self._json(payload)
@@ -345,6 +475,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(error)}, HTTPStatus.BAD_REQUEST)
                 return
             self._json(preview)
+            return
+        if parsed.path == "/api/cache/reset":
+            self._clear_caches()
+            self._json({"ok": True, "candidate_cache": self._candidate_cache_diagnostics()})
+            return
+        if parsed.path == "/api/cache/history/reset":
+            self.store.clear_dashboard_diagnostics_history("candidate_cache")
+            self._json({
+                "ok": True,
+                "candidate_cache": self._candidate_cache_diagnostics(),
+                "ranking_cache": self._ranking_cache_diagnostics(),
+                "candidate_cache_history": [],
+            })
             return
         if parsed.path == "/api/config/profile":
             try:
@@ -486,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--refresh-minutes", type=int, default=180)
     args = parser.parse_args(argv)
     DashboardHandler.store = Store(Path(args.db))
+    DashboardHandler.restore_candidate_cache_diagnostics()
     DashboardHandler.applications = ApplicationService(DashboardHandler.store)
     DashboardHandler.scoring_preview = ScoringPreviewService(DashboardHandler.store)
     DashboardHandler.config_dir = Path(args.db).parent / "config"

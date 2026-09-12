@@ -203,6 +203,22 @@ export function RoleDetailPanel({
               placeholder="Why this role is or isn't worth pursuing…"
             />
           </label>
+          <div className="mt-2 flex flex-wrap gap-2" aria-label="Decision note suggestions">
+            {[
+              'Strong match for my target work.',
+              'Missing experience is a concern.',
+              'Follow up after reviewing the posting.',
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => onNoteChange(note ? `${note}\n${suggestion}` : suggestion)}
+                className="rounded-full border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
           <div className="sticky bottom-0 -mx-5 mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 bg-white/95 px-5 py-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
             <Button
               variant="outline"

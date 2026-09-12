@@ -133,4 +133,45 @@ describe('score weight comparison', () => {
     ).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  test('saves named presets and restores one in a single action', () => {
+    const onSave = vi.fn(async () => undefined);
+    const savedProfile = {
+      ...profile,
+      scoring_presets: {
+        'Previous allocation': {
+          ...DEFAULT_SCORING_WEIGHTS,
+          required_skills: 25,
+          role_skills: 30,
+        },
+      },
+    };
+    render(
+      <ScoreWeightSettings profile={savedProfile} busy={false} onSave={onSave} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scoring_weights: expect.objectContaining({
+          required_skills: 25,
+          role_skills: 30,
+        }),
+      }),
+      expect.stringContaining('Restored'),
+    );
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Preset name' }), {
+      target: { value: 'Current experiment' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scoring_presets: expect.objectContaining({
+          'Current experiment': DEFAULT_SCORING_WEIGHTS,
+        }),
+      }),
+      expect.stringContaining('Saved'),
+    );
+  });
 });

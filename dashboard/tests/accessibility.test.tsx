@@ -103,6 +103,9 @@ describe('dashboard accessibility', () => {
               entries: 1,
               cached_jobs: 12,
               estimated_bytes: 1_572_864,
+              max_bytes: 33_554_432,
+              evictions: 0,
+              skips: 0,
             },
           });
         }
@@ -178,7 +181,7 @@ describe('dashboard accessibility', () => {
         name: 'Target job countries or regions',
       }),
     ).toBeTruthy();
-    expect(screen.getByText(/Preview cache 75% hits · ≈1.5 MB/)).toBeTruthy();
+    expect(screen.getByText(/Preview cache 75% hits · ≈1.5 MB\/32.0 MB/)).toBeTruthy();
 
     await expectNoAccessibilityViolations();
   });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Eye, RotateCcw, Save } from 'lucide-react';
+import { Eye, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,7 +44,10 @@ export function ScoreWeightSettings({
   const [queuePreview, setQueuePreview] = useState<ScoringPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [presetError, setPresetError] = useState('');
   const total = scoringWeightTotal(draft);
+  const presets = profile.scoring_presets ?? {};
   const changed = SCORING_COMPONENTS.some(
     ({ key }) => draft[key] !== current[key],
   );
@@ -86,6 +89,26 @@ export function ScoreWeightSettings({
     } finally {
       setPreviewBusy(false);
     }
+  };
+  const savePreset = async () => {
+    const name = presetName.trim();
+    if (!name || name.length > 60) {
+      setPresetError('Give this preset a name between 1 and 60 characters.');
+      return;
+    }
+    if (total !== 100) {
+      setPresetError('Adjust the weights to a total of 100 before saving a preset.');
+      return;
+    }
+    setPresetError('');
+    await onSave(
+      {
+        ...profile,
+        scoring_presets: { ...presets, [name]: { ...draft } },
+      },
+      `Saved “${name}” as a local scoring preset.`,
+    );
+    setPresetName('');
   };
 
   return (
@@ -183,6 +206,102 @@ export function ScoreWeightSettings({
           ? '. Ready to preview or save.'
           : '. Adjust the weights to total 100.'}
       </p>
+
+      <div className="mt-6 border-t border-slate-100 pt-5">
+        <h3 className="font-semibold">Named presets</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Save a trusted allocation locally, then restore it in one click when
+          an experiment does not improve the queue.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Input
+            className="max-w-64"
+            value={presetName}
+            onChange={(event) => {
+              setPresetName(event.target.value);
+              setPresetError('');
+            }}
+            placeholder="Preset name"
+            aria-label="Preset name"
+            maxLength={60}
+          />
+          <Button
+            variant="outline"
+            disabled={busy || total !== 100}
+            onClick={() => void savePreset()}
+          >
+            <Save /> Save preset
+          </Button>
+        </div>
+        {presetError && (
+          <p className="mt-2 text-sm text-red-700" role="alert">
+            {presetError}
+          </p>
+        )}
+        {Object.entries(presets).length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            No local presets saved yet.
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {Object.entries(presets).map(([name, weights]) => (
+              <li
+                key={name}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3"
+              >
+                <span className="text-sm font-medium">{name}</span>
+                <span className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setDraft({ ...weights });
+                      setQueuePreview(null);
+                      setPreviewError('');
+                    }}
+                  >
+                    Use for preview
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() =>
+                      void onSave(
+                        { ...profile, scoring_weights: weights },
+                        `Restored “${name}” scoring preset locally. Rankings have been refreshed.`,
+                      )
+                    }
+                  >
+                    <RotateCcw /> Restore
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void onSave(
+                        {
+                          ...profile,
+                          scoring_presets: Object.fromEntries(
+                            Object.entries(presets).filter(
+                              ([preset]) => preset !== name,
+                            ),
+                          ),
+                        },
+                        `Removed “${name}” scoring preset.`,
+                      )
+                    }
+                    aria-label={`Remove ${name} preset`}
+                  >
+                    <Trash2 />
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="mt-6 border-t border-slate-100 pt-5">
         <h3 className="font-semibold">Preview with synthetic roles</h3>

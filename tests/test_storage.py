@@ -9,6 +9,25 @@ from get_a_job.storage import Store
 
 
 class StorageTests(unittest.TestCase):
+    def test_dashboard_diagnostics_persist_small_counters_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / "jobs.db")
+            store.save_dashboard_diagnostics(
+                "candidate_cache", {"hits": 4, "misses": 2, "invalid": True}
+            )
+            self.assertEqual(
+                store.load_dashboard_diagnostics("candidate_cache"),
+                {"hits": 4, "misses": 2},
+            )
+            store.record_dashboard_diagnostics("candidate_cache", {"hits": 4, "misses": 2})
+            samples = store.list_dashboard_diagnostics("candidate_cache")
+            self.assertEqual(len(samples), 1)
+            self.assertTrue(samples[0]["observed_at"])
+            self.assertEqual(samples[0]["hits"], 4)
+            self.assertEqual(samples[0]["misses"], 2)
+            store.clear_dashboard_diagnostics_history("candidate_cache")
+            self.assertEqual(store.list_dashboard_diagnostics("candidate_cache"), [])
+
     def test_description_normalization_supports_dry_run_apply_and_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

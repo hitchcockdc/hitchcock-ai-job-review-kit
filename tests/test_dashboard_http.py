@@ -1,5 +1,6 @@
 import http.client
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -26,9 +27,15 @@ class DashboardHttpTests(unittest.TestCase):
         DashboardHandler.config_dir = root / "config"
         DashboardHandler.refresh_minutes = 0
         DashboardHandler.ranking_cache = {}
+        DashboardHandler.ranking_cache_sizes = {}
         DashboardHandler.candidate_cache = {}
         DashboardHandler.candidate_cache_hits = 0
         DashboardHandler.candidate_cache_misses = 0
+        DashboardHandler.candidate_cache_evictions = 0
+        DashboardHandler.candidate_cache_skips = 0
+        DashboardHandler.ranking_cache_hits = 0
+        DashboardHandler.ranking_cache_misses = 0
+        DashboardHandler.ranking_cache_evictions = 0
         DashboardHandler.applications = ApplicationService(self.store)
         DashboardHandler.scoring_preview = ScoringPreviewService(self.store)
         DashboardHandler.tailoring = TailoringService(self.store, DashboardHandler.config_dir)
@@ -97,6 +104,67 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertEqual(DashboardHandler.ranking_cache, {})
         self.assertEqual(DashboardHandler.candidate_cache, {})
 
+    def test_queue_response_records_ranking_cache_hits_and_misses(self):
+        self.store.upsert_jobs([
+            Job(
+                "test", "ranking", "Architect", "RankCo", "https://example.com/ranking",
+                "Python", location="Remote - US", remote=True,
+            )
+        ])
+
+        status, first = self.request("GET", "/api/jobs?status=new&limit=10")
+        self.assertEqual(status, 200)
+        self.assertFalse(first["meta"]["cached"])
+        status, second = self.request("GET", "/api/jobs?status=new&limit=10")
+        self.assertEqual(status, 200)
+        self.assertTrue(second["meta"]["cached"])
+        self.assertEqual(second["meta"]["ranking_cache"]["misses"], 1)
+        self.assertEqual(second["meta"]["ranking_cache"]["hits"], 1)
+
+    def test_cache_reset_endpoint_releases_ranking_and_candidate_entries(self):
+        DashboardHandler.ranking_cache = {("new",): {"jobs": []}}
+        DashboardHandler.candidate_cache = {("new",): ([], 0, 0)}
+
+        status, payload = self.request("POST", "/api/cache/reset")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(DashboardHandler.ranking_cache, {})
+        self.assertEqual(DashboardHandler.candidate_cache, {})
+
+    def test_cache_history_reset_endpoint_preserves_current_counters(self):
+        self.store.record_dashboard_diagnostics("candidate_cache", {"hits": 3})
+        DashboardHandler.candidate_cache_hits = 3
+
+        status, payload = self.request("POST", "/api/cache/history/reset")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["candidate_cache"]["hits"], 3)
+        self.assertEqual(payload["candidate_cache_history"], [])
+        self.assertEqual(self.store.list_dashboard_diagnostics("candidate_cache"), [])
+
+    def test_candidate_cache_diagnostics_restore_between_server_starts(self):
+        DashboardHandler.candidate_cache_hits = 7
+        DashboardHandler.candidate_cache_misses = 3
+        DashboardHandler.candidate_cache_evictions = 2
+        DashboardHandler.candidate_cache_skips = 1
+        self.store.save_dashboard_diagnostics(
+            "candidate_cache",
+            {"hits": 7, "misses": 3, "evictions": 2, "skips": 1},
+        )
+        DashboardHandler.candidate_cache_hits = 0
+        DashboardHandler.candidate_cache_misses = 0
+        DashboardHandler.candidate_cache_evictions = 0
+        DashboardHandler.candidate_cache_skips = 0
+
+        DashboardHandler.restore_candidate_cache_diagnostics()
+
+        self.assertEqual(DashboardHandler.candidate_cache_hits, 7)
+        self.assertEqual(DashboardHandler.candidate_cache_misses, 3)
+        self.assertEqual(DashboardHandler.candidate_cache_evictions, 2)
+        self.assertEqual(DashboardHandler.candidate_cache_skips, 1)
+
     def test_scoring_preview_validates_without_persisting_weights(self):
         preview_job = Job(
             "test",
@@ -158,6 +226,54 @@ class DashboardHttpTests(unittest.TestCase):
         self.assertEqual(stats["candidate_cache"]["entries"], 2)
         self.assertEqual(stats["candidate_cache"]["cached_jobs"], 3)
         self.assertGreater(stats["candidate_cache"]["estimated_bytes"], 0)
+        self.assertEqual(stats["candidate_cache"]["max_bytes"], 32 * 1024 * 1024)
+
+        previous_limit = os.environ.get("GET_A_JOB_CANDIDATE_CACHE_MAX_MB")
+        os.environ["GET_A_JOB_CANDIDATE_CACHE_MAX_MB"] = "1"
+        try:
+            self.store.upsert_jobs([
+                Job(
+                    "test", "medium", "Medium Architect", "DeltaCo",
+                    "https://example.com/medium", "Python " * 60_000,
+                    location="Remote - US", remote=True,
+                )
+            ])
+            status, _ = self.request(
+                "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+            )
+            self.assertEqual(status, 200)
+            self.store.upsert_jobs([
+                Job(
+                    "test", "medium-two", "Medium Architect II", "EchoCo",
+                    "https://example.com/medium-two", "Python " * 60_000,
+                    location="Remote - US", remote=True,
+                )
+            ])
+            status, _ = self.request(
+                "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+            )
+            self.assertEqual(status, 200)
+            self.store.upsert_jobs([
+                Job(
+                    "test", "large", "Large Architect", "DeltaCo",
+                    "https://example.com/large", "Python " * 300_000,
+                    location="Remote - US", remote=True,
+                )
+            ])
+            status, _ = self.request(
+                "POST", "/api/scoring-preview", {"weights": weights, "limit": 5}
+            )
+            self.assertEqual(status, 200)
+            status, capped_stats = self.request("GET", "/api/stats")
+            self.assertEqual(status, 200)
+            self.assertEqual(capped_stats["candidate_cache"]["max_bytes"], 1024 * 1024)
+            self.assertGreaterEqual(capped_stats["candidate_cache"]["evictions"], 1)
+            self.assertGreaterEqual(capped_stats["candidate_cache"]["skips"], 1)
+        finally:
+            if previous_limit is None:
+                os.environ.pop("GET_A_JOB_CANDIDATE_CACHE_MAX_MB", None)
+            else:
+                os.environ["GET_A_JOB_CANDIDATE_CACHE_MAX_MB"] = previous_limit
 
         status, payload = self.request(
             "POST", "/api/scoring-preview", {"weights": {"required_skills": 100}}
